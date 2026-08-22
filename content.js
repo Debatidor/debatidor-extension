@@ -4,13 +4,14 @@
     return;
   }
 
+  const ALLOWED = new Set(['extension.dom_status', 'extension.dom_delta']);
   const port = chrome.runtime.connect({ name: 'debatidor-tab' });
   let lastStatus = null;
   let lastAnswer = '';
   let sequenceNumber = 0;
   let sawStream = false;
   let turnId = null;
-  let connectionId = 'conn_dom_default';
+  let connectionId = 'conn_dom_qwen_01';
   let debateId = null;
 
   port.onMessage.addListener((msg) => {
@@ -22,10 +23,6 @@
     if (msg?.type === 'dom_prompt') {
       const status = host.detectStatus();
       if (status === 'thinking' || status === 'generating') {
-        port.postMessage({
-          type: 'wire',
-          payload: statusEvent('error'),
-        });
         return;
       }
       turnId = msg.turnId ?? turnId;
@@ -35,10 +32,7 @@
       const preamble = msg.systemPreamble ? `${msg.systemPreamble}\n\n` : '';
       const result = host.injectPrompt(`${preamble}${msg.promptText ?? ''}`);
       if (!result.ok) {
-        port.postMessage({
-          type: 'wire',
-          payload: statusEvent('error'),
-        });
+        emit(statusEvent('error'));
       }
     }
   });
@@ -59,29 +53,31 @@
     }
     if (status !== lastStatus) {
       lastStatus = status;
-      port.postMessage({ type: 'wire', payload: statusEvent(status) });
+      emit(statusEvent(status));
       if (status === 'waiting' && sawStream && lastAnswer) {
         sequenceNumber += 1;
-        port.postMessage({
-          type: 'wire',
-          payload: deltaEvent(lastAnswer, true),
-        });
+        emit(deltaEvent(lastAnswer, true));
         sawStream = false;
       }
     }
     if (status === 'generating') {
       const current = host.readAnswer();
       if (current && current !== lastAnswer) {
-        const suffix =
-          current.startsWith(lastAnswer) ? current.slice(lastAnswer.length) : current;
+        const suffix = current.startsWith(lastAnswer)
+          ? current.slice(lastAnswer.length)
+          : current;
         lastAnswer = current;
         sequenceNumber += 1;
-        port.postMessage({
-          type: 'wire',
-          payload: deltaEvent(suffix, false),
-        });
+        emit(deltaEvent(suffix, false));
       }
     }
+  }
+
+  function emit(payload) {
+    if (!ALLOWED.has(payload.event)) {
+      return;
+    }
+    port.postMessage({ type: 'wire', payload });
   }
 
   function statusEvent(status) {

@@ -1,16 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Debatidor",
-  "version": "0.0.1",
-  "description": "Puente smart PAL-004: observa el DOM del chat web y habla con debatidor-back. No escribe disco.",
-  "permissions": ["storage", "tabs"],
+  "version": "0.1.0",
+  "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page. Does not access the disk.",
+  "permissions": ["storage"],
   "host_permissions": [
     "http://localhost:3001/*",
-    "ws://localhost:3001/*",
-    "https://chat.qwen.ai/*",
-    "https://chatgpt.com/*",
-    "https://gemini.google.com/*",
-    "https://claude.ai/*"
+    "https://api.debatidor.com/*",
+    "https://chat.qwen.ai/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -19,19 +16,14 @@
     "default_title": "Debatidor",
     "default_popup": "popup.html"
   },
+  "options_ui": {
+    "page": "popup.html",
+    "open_in_tab": false
+  },
   "content_scripts": [
     {
       "matches": ["https://chat.qwen.ai/*"],
       "js": ["hosts/qwen.js", "content.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://gemini.google.com/*",
-        "https://claude.ai/*"
-      ],
-      "js": ["hosts/pending.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

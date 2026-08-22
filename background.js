@@ -2,10 +2,14 @@ const DEFAULTS = {
   backendUrl: 'ws://localhost:3001/extension',
   connectionId: 'conn_dom_qwen_01',
   debateId: '',
+  apiKey: '',
 };
+
+const OUTBOUND = new Set(['extension.dom_status', 'extension.dom_delta']);
 
 let socket = null;
 let tabs = new Map();
+let reconnectTimer = 0;
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'debatidor-tab') {
@@ -24,12 +28,17 @@ chrome.runtime.onConnect.addListener((port) => {
     });
   });
   port.onMessage.addListener((msg) => {
-    if (msg?.type === 'wire' && socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(msg.payload));
+    if (msg?.type !== 'wire' || socket?.readyState !== WebSocket.OPEN) {
+      return;
     }
+    const event = msg.payload?.event;
+    if (!OUTBOUND.has(event)) {
+      return;
+    }
+    socket.send(JSON.stringify(msg.payload));
   });
   port.onDisconnect.addListener(() => tabs.delete(tabId));
-  ensureSocket();
+  void ensureSocket();
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -41,10 +50,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'status') {
-    sendResponse({
-      socket: socket?.readyState === WebSocket.OPEN ? 'open' : 'closed',
-      tabs: [...tabs.keys()],
+    loadConfig().then((config) => {
+      sendResponse({
+        socket: socket?.readyState === WebSocket.OPEN ? 'open' : 'closed',
+        hasKey: Boolean(config.apiKey),
+        tabs: [...tabs.keys()],
+      });
     });
+    return true;
   }
   return false;
 });
@@ -59,11 +72,16 @@ async function ensureSocket() {
     return;
   }
   const config = await loadConfig();
+  if (!config.apiKey) {
+    return;
+  }
   const url = new URL(config.backendUrl);
   url.searchParams.set('connectionId', config.connectionId);
   if (config.debateId) {
     url.searchParams.set('debateId', config.debateId);
   }
+  // Chrome WebSocket() cannot set x-api-key. The backend accepts apiKey in the handshake query.
+  url.searchParams.set('apiKey', config.apiKey);
   socket = new WebSocket(url);
   socket.addEventListener('open', () => {
     broadcast({ type: 'config', connectionId: config.connectionId, debateId: config.debateId });
@@ -85,14 +103,19 @@ async function ensureSocket() {
     }
   });
   socket.addEventListener('close', () => {
-    setTimeout(ensureSocket, 1500);
+    socket = null;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      void ensureSocket();
+    }, 2000);
   });
 }
 
 function reconnect() {
+  clearTimeout(reconnectTimer);
   socket?.close();
   socket = null;
-  ensureSocket();
+  void ensureSocket();
 }
 
 function broadcast(msg) {
@@ -104,5 +127,3 @@ function broadcast(msg) {
     }
   }
 }
-
-ensureSocket();

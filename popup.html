@@ -4,23 +4,64 @@
     <meta charset="utf-8" />
     <title>Debatidor</title>
     <style>
-      body { font: 13px/1.4 system-ui, sans-serif; width: 280px; margin: 12px; }
-      label { display: block; margin: 8px 0 4px; font-weight: 600; }
-      input { width: 100%; box-sizing: border-box; padding: 6px; }
-      button { margin-top: 12px; width: 100%; padding: 8px; }
-      #status { margin-top: 8px; color: #444; }
+      :root { color-scheme: dark; }
+      body {
+        font: 13px/1.45 system-ui, sans-serif;
+        width: 300px;
+        margin: 0;
+        padding: 14px;
+        background: #09090b;
+        color: #e4e4e7;
+      }
+      h1 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
+      p { margin: 0 0 12px; color: #a1a1aa; }
+      label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 12px; }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 7px 8px;
+        border: 1px solid #27272a;
+        border-radius: 6px;
+        background: #18181b;
+        color: #fafafa;
+      }
+      .row { display: flex; gap: 6px; margin-top: 8px; }
+      .row button { flex: 1; }
+      button {
+        margin-top: 12px;
+        width: 100%;
+        padding: 8px;
+        border: 0;
+        border-radius: 6px;
+        background: #f4f4f5;
+        color: #09090b;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .ghost {
+        background: #27272a;
+        color: #e4e4e7;
+        margin-top: 0;
+      }
+      #status { margin-top: 10px; color: #a1a1aa; font-size: 12px; }
     </style>
   </head>
   <body>
-    <strong>Debatidor extension</strong>
-    <p>Smart DOM bridge. No escribe disco. Vincula esta pestaña al bus.</p>
+    <h1>Debatidor</h1>
+    <p>Pega una API Key del Hub y abre <code>chat.qwen.ai</code>.</p>
+    <label>API Key</label>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="deb_live_…" />
     <label>WebSocket</label>
     <input id="backendUrl" />
+    <div class="row">
+      <button class="ghost" type="button" id="local">Local</button>
+      <button class="ghost" type="button" id="prod">Producción</button>
+    </div>
     <label>connectionId</label>
     <input id="connectionId" />
     <label>debateId (opcional)</label>
     <input id="debateId" />
-    <button id="save">Guardar y reconectar</button>
+    <button id="save" type="button">Guardar y conectar</button>
     <div id="status"></div>
     <script src="popup.js"></script>
   </body>
