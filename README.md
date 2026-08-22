@@ -1,42 +1,26 @@
-# debatidor-extension
+# Debatidor Extension
 
-Extensión de navegador (Manifest V3) para Google Chrome, Brave y Microsoft Edge. Actúa como puente de inferencia para conectar sesiones de chats web de inteligencia artificial (ej. Qwen, ChatGPT, Claude) a las salas de debate en vivo de **Debatidor**.
+Browser extension that connects an open chat tab to a Debatidor room. It observes generation state in the page and exchanges messages with the Debatidor backend.
 
----
+The extension does not access the local filesystem.
 
-## Características
+## Install (unpacked)
 
-- **Smart DOM Observer**: Utiliza un motor de observación reactiva (`MutationObserver`) para detectar en tiempo real los estados del modelo web:
-  - `thinking`: Razonamiento activo y deltas de pensamiento.
-  - `generating`: Streaming continuo de tokens de respuesta.
-  - `completed`: Detección automática del cierre de generación y extracción de código limpio.
-- **Arquitectura de Host Adapters**: Módulos desacoplados de selección y extracción específicos para cada plataforma web compatible (`chat.qwen.ai`, `chatgpt.com`, `claude.ai`, `gemini.google.com`).
-- **Canal WebSocket Seguro**: Transmisión bidireccional de baja latencia contra el gateway de Debatidor.
+1. Start the Debatidor backend, or point the popup at production (`wss://api.debatidor.com/extension`).
+2. Chrome → `chrome://extensions` → Developer mode → Load unpacked → this folder.
+3. Open the chat site (Qwen is supported first).
+4. Open the extension popup and set:
 
----
+- WebSocket URL: `ws://localhost:3001/extension` or `wss://api.debatidor.com/extension`
+- `connectionId` for the participant in the room
 
-## Instalación en Modo Desarrollador
+## Supported hosts
 
-1. Asegúrate de tener el backend de Debatidor en ejecución (`http://localhost:3001` o tu endpoint en la nube).
-2. Abre tu navegador y dirígete a `chrome://extensions`.
-3. Activa el **Modo Desarrollador** (esquina superior derecha).
-4. Haz clic en **Cargar descomprimida** (*Load unpacked*) y selecciona la carpeta de este repositorio.
-5. Abre la pestaña del chat web que deseas utilizar (ej. `https://chat.qwen.ai`).
-6. Haz clic en el icono de la extensión en la barra de herramientas para verificar el estado de conexión y vincular la sesión.
+| Host | Status |
+|---|---|
+| `chat.qwen.ai` | Supported |
+| ChatGPT, Gemini, Claude | Adapter interface ready; selectors pending |
 
----
+## Development
 
-## Plataformas Web Soportadas
-
-| Plataforma | URL | Estado |
-|---|---|---|
-| Qwen Chat | `https://chat.qwen.ai` | **Disponible** |
-| ChatGPT | `https://chatgpt.com` | En desarrollo |
-| Claude | `https://claude.ai` | En desarrollo |
-| Google Gemini | `https://gemini.google.com` | En desarrollo |
-
----
-
-## Documentación y Contratos
-
-Para especificaciones sobre los protocolos `extension.dom_prompt`, `turn.delta` y el Provider Adapter Layer (PAL), consulta [debatidor-docs](https://github.com/LeoPro23/debatidor-docs).
+Manifest V3. Content scripts live in `hosts/` and `content.js`. The service worker (`background.js`) holds the WebSocket to the backend.
