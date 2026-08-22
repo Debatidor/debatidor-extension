@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Debatidor",
+  "version": "0.0.1",
+  "description": "Puente smart PAL-004: observa el DOM del chat web y habla con debatidor-back. No escribe disco.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "http://localhost:3001/*",
+    "ws://localhost:3001/*",
+    "https://chat.qwen.ai/*",
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "https://claude.ai/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Debatidor",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.qwen.ai/*"],
+      "js": ["hosts/qwen.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["hosts/pending.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Debatidor</title>
+    <style>
+      body { font: 13px/1.4 system-ui, sans-serif; width: 280px; margin: 12px; }
+      label { display: block; margin: 8px 0 4px; font-weight: 600; }
+      input { width: 100%; box-sizing: border-box; padding: 6px; }
+      button { margin-top: 12px; width: 100%; padding: 8px; }
+      #status { margin-top: 8px; color: #444; }
+    </style>
+  </head>
+  <body>
+    <strong>Debatidor extension</strong>
+    <p>Smart DOM bridge. No escribe disco. Vincula esta pestaña al bus.</p>
+    <label>WebSocket</label>
+    <input id="backendUrl" />
+    <label>connectionId</label>
+    <input id="connectionId" />
+    <label>debateId (opcional)</label>
+    <input id="debateId" />
+    <button id="save">Guardar y reconectar</button>
+    <div id="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>
