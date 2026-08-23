@@ -24,7 +24,9 @@
   let sequenceNumber = 0;
   let sawStream = false;
   let turnId = null;
-  let connectionId = 'conn_dom_qwen_01';
+  // Identidad derivada del host (conn_dom_qwen, conn_dom_openai, …): nunca
+  // hardcodeada. El prompt dirigido a otro host se ignora.
+  let connectionId = host.connectionId ?? 'conn_dom';
   let debateId = null;
   /** @type {'unknown' | 'enabled' | 'disabled'} */
   let injectionEnabled = 'unknown';
@@ -70,6 +72,8 @@
     }
     if (msg?.type !== 'dom_prompt') return;
     if (injectionEnabled === 'disabled') return;
+    // Prompt dirigido a otro host (multi-modelo): esta pestaña no interviene.
+    if (msg.connectionId && msg.connectionId !== connectionId) return;
     const status = host.detectStatus();
     if (status === 'thinking' || status === 'generating') return;
     turnId = msg.turnId ?? turnId;

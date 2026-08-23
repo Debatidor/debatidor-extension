@@ -3,7 +3,10 @@
 
 const DEFAULTS = {
   backendUrl: 'ws://localhost:3001/extension',
-  connectionId: 'conn_dom_qwen_01',
+  // Identidad de REGISTRO del socket (genérica): la identidad por proveedor
+  // (conn_dom_qwen, conn_dom_openai, …) la declara cada host adapter y viaja
+  // en el payload de dom_status/dom_delta.
+  connectionId: 'conn_dom',
   debateId: '',
   apiKey: '',
 };
@@ -115,6 +118,10 @@ async function isEnabled(tabId) {
 
 async function loadConfig() {
   const stored = await chrome.storage.local.get(DEFAULTS);
+  // Migración: el default hardcodeado del P0 deja de ser válido.
+  if (stored.connectionId === 'conn_dom_qwen_01') {
+    stored.connectionId = DEFAULTS.connectionId;
+  }
   return { ...DEFAULTS, ...stored };
 }
 

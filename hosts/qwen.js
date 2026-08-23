@@ -154,6 +154,8 @@
 
   global.__debatidorHost = {
     hostId: 'qwen',
+    providerId: 'qwen',
+    connectionId: 'conn_dom_qwen',
     selectorVersion: SELECTOR_VERSION,
     matches(url) {
       return /chat\.qwen\.ai/i.test(url);

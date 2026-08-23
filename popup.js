@@ -10,7 +10,9 @@ const HOSTS = {
 };
 const DEFAULTS = {
   backendUrl: 'ws://localhost:3001/extension',
-  connectionId: 'conn_dom_qwen_01',
+  // La identidad por proveedor (conn_dom_qwen, conn_dom_openai, …) la declara
+  // cada host adapter según la URL; el usuario NO la elige.
+  connectionId: 'conn_dom',
   debateId: '',
   apiKey: '',
 };
