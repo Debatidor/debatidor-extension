@@ -1,68 +1,99 @@
 <!doctype html>
-<html>
+<html lang="es">
   <head>
     <meta charset="utf-8" />
     <title>Debatidor</title>
-    <style>
-      :root { color-scheme: dark; }
-      body {
-        font: 13px/1.45 system-ui, sans-serif;
-        width: 300px;
-        margin: 0;
-        padding: 14px;
-        background: #09090b;
-        color: #e4e4e7;
-      }
-      h1 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
-      p { margin: 0 0 12px; color: #a1a1aa; }
-      label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 12px; }
-      input {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 7px 8px;
-        border: 1px solid #27272a;
-        border-radius: 6px;
-        background: #18181b;
-        color: #fafafa;
-      }
-      .row { display: flex; gap: 6px; margin-top: 8px; }
-      .row button { flex: 1; }
-      button {
-        margin-top: 12px;
-        width: 100%;
-        padding: 8px;
-        border: 0;
-        border-radius: 6px;
-        background: #f4f4f5;
-        color: #09090b;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      .ghost {
-        background: #27272a;
-        color: #e4e4e7;
-        margin-top: 0;
-      }
-      #status { margin-top: 10px; color: #a1a1aa; font-size: 12px; }
-    </style>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <h1>Debatidor</h1>
-    <p>Pega una API Key del Hub y abre <code>chat.qwen.ai</code>.</p>
-    <label>API Key</label>
-    <input id="apiKey" type="password" autocomplete="off" placeholder="deb_live_…" />
-    <label>WebSocket</label>
-    <input id="backendUrl" />
-    <div class="row">
-      <button class="ghost" type="button" id="local">Local</button>
-      <button class="ghost" type="button" id="prod">Producción</button>
-    </div>
-    <label>connectionId</label>
-    <input id="connectionId" />
-    <label>debateId (opcional)</label>
-    <input id="debateId" />
-    <button id="save" type="button">Guardar y conectar</button>
-    <div id="status"></div>
+    <header class="flex items-center gap-2 px-4 py-3 border-b">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="dgrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#6366f1" />
+            <stop offset="1" stop-color="#22d3ee" />
+          </linearGradient>
+        </defs>
+        <rect width="32" height="32" rx="9" fill="url(#dgrad)" />
+        <path
+          d="M11 7h5a9 9 0 0 1 0 18h-5Zm3.4 3.8v10.4h1.6a5.2 5.2 0 0 0 0-10.4Z"
+          fill="#0b0f17"
+          fill-rule="evenodd"
+        />
+      </svg>
+      <div class="flex-1">
+        <div class="font-semibold text-slate-200 text-sm leading-none">Debatidor</div>
+        <div id="app-version" class="text-xs text-slate-500 mt-1">ext</div>
+      </div>
+      <span class="pill"><span id="ws-dot" class="dot dot-closed"></span><span id="ws-label">…</span></span>
+    </header>
+
+    <!-- Vista: agente detectado en la pestaña activa -->
+    <main id="view-agent" class="hidden flex-col gap-3 p-4">
+      <section class="card">
+        <div class="flex items-center gap-2">
+          <span class="dot dot-live"></span>
+          <span class="text-xs text-slate-400">Agente detectado:</span>
+          <strong id="agent-name" class="text-sm text-white font-semibold">…</strong>
+        </div>
+        <div id="agent-url" class="text-xs text-slate-500 mt-1 truncate"></div>
+        <label class="toggle-row mt-3">
+          <span>
+            <span class="text-sm text-slate-200 font-medium">Inyección en esta pestaña</span>
+            <span id="toggle-hint" class="block text-xs text-slate-500 mt-1">Apagada</span>
+          </span>
+          <input id="inject-toggle" class="switch" type="checkbox" />
+        </label>
+      </section>
+      <p class="text-xs text-slate-500 leading-relaxed">
+        Con la inyección activa, esta pestaña recibe turnos de la sala y transmite sus respuestas al Hub.
+      </p>
+    </main>
+
+    <!-- Vista: primer arranque sin API Key -->
+    <main id="view-first" class="hidden flex-col gap-3 p-4">
+      <section class="card">
+        <div class="text-sm text-slate-200 font-medium">Falta tu API Key</div>
+        <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+          Pégala en <strong class="text-slate-300">Ajustes</strong> para conectar con el Hub. La
+          guardamos una sola vez.
+        </p>
+        <button id="btn-goto-key" class="btn-primary" style="margin-top: 12px" type="button">
+          Pegar API Key
+        </button>
+      </section>
+    </main>
+
+    <!-- Vista: pestaña sin host compatible -->
+    <main id="view-empty" class="hidden flex-col gap-3 p-4">
+      <section class="card">
+        <div class="text-sm text-slate-200 font-medium">Sin agente en esta pestaña</div>
+        <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+          Abre uno de los hosts compatibles para vincularlo a tu sala:
+        </p>
+        <ul id="host-list" class="flex-col gap-1 mt-2" style="list-style: none; margin: 0; padding: 0"></ul>
+      </section>
+    </main>
+
+    <footer class="border-t">
+      <button id="btn-settings" class="btn-ghost" type="button">Ajustes ▾</button>
+      <section id="settings" class="hidden px-4 pb-4 pt-1 border-t">
+        <label class="label" for="apiKey">API Key del Hub</label>
+        <input id="apiKey" class="input" type="password" autocomplete="off" placeholder="deb_live_…" />
+        <label class="label" for="backendUrl">WebSocket</label>
+        <input id="backendUrl" class="input" spellcheck="false" />
+        <div class="flex gap-2 mt-2">
+          <button id="chip-local" class="chip" type="button">Local</button>
+          <button id="chip-prod" class="chip" type="button">Producción</button>
+        </div>
+        <label class="label" for="connectionId">connectionId</label>
+        <input id="connectionId" class="input" spellcheck="false" />
+        <label class="label" for="debateId">debateId (opcional)</label>
+        <input id="debateId" class="input" spellcheck="false" />
+        <button id="save" class="btn-primary" style="margin-top: 14px" type="button">Guardar y reconectar</button>
+      </section>
+    </footer>
+
     <script src="popup.js"></script>
   </body>
 </html>

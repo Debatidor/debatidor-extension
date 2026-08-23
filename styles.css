@@ -1,0 +1,310 @@
+/* Debatidor popup — estética "Dark Obsidian" del Hub.
+ *
+ * Subconjunto manual de utilidades Tailwind (mismos nombres de clase) para
+ * que el markup migre 1:1 a un build real de Tailwind después. El Play CDN
+ * está vetado en MV3: las páginas de extensión no pueden cargar scripts
+ * remotos (script-src 'self' no es relajable), por eso existe este archivo.
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 320px;
+  background: #0b0f17;
+  color: #e2e8f0;
+  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------- layout */
+.hidden {
+  display: none !important;
+}
+.block {
+  display: block;
+}
+.flex {
+  display: flex;
+}
+.flex-col {
+  flex-direction: column;
+}
+.flex-1 {
+  flex: 1 1 0%;
+}
+.items-center {
+  align-items: center;
+}
+.justify-between {
+  justify-content: space-between;
+}
+.gap-1 {
+  gap: 4px;
+}
+.gap-2 {
+  gap: 8px;
+}
+.gap-3 {
+  gap: 12px;
+}
+.p-3 {
+  padding: 12px;
+}
+.p-4 {
+  padding: 16px;
+}
+.px-4 {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.pb-4 {
+  padding-bottom: 16px;
+}
+.pt-1 {
+  padding-top: 4px;
+}
+.py-3 {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.mt-1 {
+  margin-top: 4px;
+}
+.mt-2 {
+  margin-top: 8px;
+}
+.mt-3 {
+  margin-top: 12px;
+}
+.w-full {
+  width: 100%;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------ typography */
+.text-xs {
+  font-size: 11px;
+  line-height: 1.4;
+}
+.text-sm {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.font-medium {
+  font-weight: 500;
+}
+.font-semibold {
+  font-weight: 600;
+}
+.leading-none {
+  line-height: 1;
+}
+.leading-relaxed {
+  line-height: 1.6;
+}
+.text-white {
+  color: #ffffff;
+}
+.text-slate-200 {
+  color: #e2e8f0;
+}
+.text-slate-300 {
+  color: #cbd5e1;
+}
+.text-slate-400 {
+  color: #94a3b8;
+}
+.text-slate-500 {
+  color: #64748b;
+}
+code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.92em;
+}
+
+/* -------------------------------------------------------- surfaces */
+.border-b {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.border-t {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+/* --------------------------------------------------------- controls */
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+}
+.btn-primary {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1, #22d3ee);
+  color: #071018;
+  font-weight: 600;
+  transition: filter 0.15s ease;
+}
+.btn-primary:hover {
+  filter: brightness(1.1);
+}
+.btn-ghost {
+  width: 100%;
+  padding: 9px 12px;
+  background: transparent;
+  color: #94a3b8;
+  font-weight: 500;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.btn-ghost:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.04);
+}
+.chip {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 500;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.chip:hover {
+  color: #e2e8f0;
+  border-color: rgba(99, 102, 241, 0.6);
+}
+.label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin: 10px 0 4px;
+}
+.input {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f1f5f9;
+  font: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.input:focus {
+  border-color: rgba(99, 102, 241, 0.65);
+}
+.input::placeholder {
+  color: #475569;
+}
+
+/* switch */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+.switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.switch::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #94a3b8;
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+.switch:checked {
+  background: rgba(99, 102, 241, 0.9);
+  border-color: rgba(99, 102, 241, 0.9);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.35);
+}
+.switch:checked::before {
+  transform: translateX(16px);
+  background: #ffffff;
+}
+
+/* ---------------------------------------------------- pills & dots */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #f59e0b;
+  flex: none;
+}
+.dot-open {
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+}
+.dot-live {
+  background: #22d3ee;
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.7);
+}
+.dot-dead {
+  background: #f87171;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.6);
+}

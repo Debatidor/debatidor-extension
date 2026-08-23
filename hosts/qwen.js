@@ -4,7 +4,7 @@
  * If none of these match, status = error. Never press Enter blindly.
  */
 (function attachQwenAdapter(global) {
-  const SELECTOR_VERSION = '2026-08-qwen-studio';
+  const SELECTOR_VERSION = '2026-08-qwen-chatv2-think3';
   const COMPOSER = [
     'textarea.message-input-textarea',
     'textarea[class*="message-input"]',
@@ -13,17 +13,25 @@
     '[contenteditable="true"].ql-editor',
   ];
   const SEND = [
-    '.message-input-right-button-send',
-    'button[class*="send"]',
+    '.chat-prompt-send-button button.send-button',
+    '.message-input-right-button-send button.send-button',
+    '.message-input-right-button-send button',
+    'button[aria-label="Send"]',
     'button[aria-label*="Send" i]',
-    'button[aria-label*="Enviar" i]',
+    'button[class*="send"]',
   ];
   const THINKING = [
+    // Tarjeta de thinking ACTIVA (chat-v2): clases SIN la palabra "thinking".
+    // El título animado + el botón "Skip" solo existen mientras piensa.
+    // OJO: NO usar [class*="thinking-status-card"]:not([class*="completed"])
+    // — los HIJOS de la tarjeta completada (icon/content/title) contienen el
+    // substring sin tener "completed" ellos mismos, y el :not() evalúa por
+    // elemento → detector envenenado, estado atascado en thinking eterno.
+    '.qwen-chat-status-card',
+    '[class*="status-card-answer-now"]',
+    '[class*="status-card-title-animate"]',
     '.response-message-content.phase-thinking',
     '.response-message-content.phase-reason',
-    '[class*="phase-thinking"]',
-    '[class*="thinking-panel"]',
-    '[class*="reasoning"]',
   ];
   const STOP = [
     '[aria-label*="Stop" i]',
@@ -33,14 +41,32 @@
   ];
   const ANSWER = [
     '.response-message-content.phase-answer',
+    '.qwen-chat-message-assistant .custom-qwen-markdown',
+    '.qwen-chat-message-assistant .qwen-markdown',
     '.qwen-chat-message-assistant .markdown-body',
     '.qwen-chat-message-assistant',
     '[class*="assistant"] [class*="markdown"]',
   ];
-  const COPY = ['.copy-response-button', 'button[aria-label*="Copy" i]'];
+  // Completion signal: the action footer (Regenerate et al) only renders
+  // once the answer is final. The copy button exists from the start, so it
+  // is NOT a completion signal in chat-v2.
+  const DONE_MARKS = [
+    '[class*="action-control-container-regenerate"]',
+    'button[aria-label*="Regenerate" i]',
+  ];
   const ASSISTANT = ['.qwen-chat-message-assistant', '[class*="message-assistant"]'];
 
   let composerSeenAt = 0;
+  let answerSnapshot = '';
+  let answerChangedAt = 0;
+  const SETTLE_MS = 900;
+
+  function trackAnswer(text) {
+    if (text !== answerSnapshot) {
+      answerSnapshot = text;
+      answerChangedAt = Date.now();
+    }
+  }
 
   function first(selectors) {
     for (const selector of selectors) {
@@ -52,14 +78,56 @@
     return null;
   }
 
-  function lastMatch(selectors) {
-    for (const selector of selectors) {
+  /**
+   * chat-v2 trampa doble: la tarjeta ACTIVA usa clases qwen-chat-status-card*
+   * (sin substring "thinking") y la COMPLETADA usa qwen-chat-thinking-*-
+   * completed. Detectar activo = presencia de la tarjeta activa o un título
+   * de thinking que aún no diga "completed".
+   */
+  function thinkingActive() {
+    if (first(THINKING)) return true;
+    const titles = document.querySelectorAll('[class*="status-card-title"]');
+    for (const node of titles) {
+      // Un título dentro de una tarjeta completada no cuenta como activo.
+      if (node.closest('[class*="completed"]')) continue;
+      if (!/completed|completado/i.test(node.textContent ?? '')) return true;
+    }
+    return false;
+  }
+
+  /** Último nodo de respuesta que NO viva dentro del panel de thinking. */
+  function answerNode() {
+    for (const selector of ANSWER) {
       const nodes = document.querySelectorAll(selector);
-      if (nodes.length) {
-        return nodes[nodes.length - 1];
+      for (let i = nodes.length - 1; i >= 0; i -= 1) {
+        const node = nodes[i];
+        if (node.closest('[class*="thinking-tool-status-card"]')) continue;
+        return node;
       }
     }
     return null;
+  }
+
+  function answerText(node) {
+    if (!node) return '';
+    if (node.querySelector('[class*="thinking"], [class*="status-card"]')) {
+      // Fallback amplio (contenedor entero del assistant): extirpar el UI de
+      // thinking (tarjeta activa qwen-chat-status-card* Y completada
+      // qwen-thinking-*) para no transmitir "Prepararme para el debate… Skip".
+      const clone = node.cloneNode(true);
+      for (const el of clone.querySelectorAll(
+        '[class*="thinking"], [class*="status-card"], .response-message-footer',
+      )) {
+        el.remove();
+      }
+      return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+    }
+    return (node.innerText ?? '').trim();
+  }
+
+  function isDone(node) {
+    const shell = node.closest(ASSISTANT.join(',')) ?? node.parentElement;
+    return Boolean(shell && DONE_MARKS.some((selector) => shell.querySelector(selector)));
   }
 
   function composer() {
@@ -103,9 +171,12 @@
       }
       composerSeenAt = Date.now();
 
-      if (first(THINKING)) {
+      // 1) Thinking explícito (tarjeta sin "-completed" o título activo).
+      if (thinkingActive()) {
         return 'thinking';
       }
+      // 2) Botón de stop visible = generando, PERO en chat-v2 aparece desde
+      //    el primer token de thinking; solo es concluyente fuera de thinking.
       if (first(STOP)) {
         return 'generating';
       }
@@ -116,32 +187,59 @@
         return 'generating';
       }
 
-      const answer = lastMatch(ANSWER);
-      if (answer) {
-        const shell = answer.closest(ASSISTANT.join(',')) ?? answer.parentElement;
-        const hasCopy = Boolean(
-          shell && COPY.some((selector) => shell.querySelector(selector)),
-        );
-        const text = (answer.innerText ?? '').trim();
-        if (text && !hasCopy) {
-          return 'generating';
-        }
+      // 3) Respuesta en curso: texto visible sin footer de acciones.
+      const node = answerNode();
+      const text = answerText(node);
+      trackAnswer(text);
+      if (text) {
+        const done = isDone(node);
+        if (!done) return 'generating';
+        // Settle: el footer aparece un instante después del último token.
+        if (Date.now() - answerChangedAt < SETTLE_MS) return 'generating';
+        return 'waiting';
       }
       return 'waiting';
     },
     readAnswer() {
-      return (lastMatch(ANSWER)?.innerText ?? '').trim();
+      const node = answerNode();
+      return answerText(node);
+    },
+    /**
+     * true si el hilo no tiene respuestas del assistant aún: único momento
+     * en que tiene sentido inyectar la preamble de rol (después, el propio
+     * hilo ya lleva el contexto y mandarla de nuevo es spam visible).
+     */
+    isFreshConversation() {
+      return !document.querySelector(ASSISTANT.join(','));
     },
     injectPrompt(text) {
       const box = composer();
-      const send = first(SEND);
-      if (!box || !send) {
-        return { ok: false, reason: 'composer_or_send_missing' };
+      if (!box) {
+        return { ok: false, reason: 'composer_missing' };
       }
       box.focus();
       setNativeValue(box, text);
-      send.click();
-      return { ok: true };
+      const send = first(SEND);
+      const disabled =
+        send instanceof HTMLButtonElement &&
+        (send.disabled || send.getAttribute('aria-disabled') === 'true');
+      if (send && !disabled) {
+        send.click();
+        return { ok: true, via: 'button' };
+      }
+      // Fallback: Qwen envía con Enter desde el composer enfocado.
+      const key = {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+        cancelable: true,
+      };
+      box.dispatchEvent(new KeyboardEvent('keydown', key));
+      box.dispatchEvent(new KeyboardEvent('keypress', key));
+      box.dispatchEvent(new KeyboardEvent('keyup', key));
+      return { ok: true, via: 'enter' };
     },
   };
 })(globalThis);
