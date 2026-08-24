@@ -2,7 +2,7 @@
 // Owns the WebSocket to the Hub and bridges it to per-tab content-script ports.
 
 const DEFAULTS = {
-  backendUrl: 'ws://localhost:3001/extension',
+  backendUrl: 'wss://api.debatidor.com/extension',
   // Identidad de REGISTRO del socket (genérica): la identidad por proveedor
   // (conn_dom_qwen, conn_dom_openai, …) la declara cada host adapter y viaja
   // en el payload de dom_status/dom_delta.

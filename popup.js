@@ -1,40 +1,42 @@
-// Debatidor popup — cero fricción: detecta el host en la pestaña activa,
-// guarda la config en chrome.storage.local y muestra un toggle de inyección
-// por pestaña. Los inputs viven detrás de "Ajustes".
+// Debatidor popup: a compact control surface for the active browser agent.
 
 const HOSTS = {
-  'chat.qwen.ai': { name: 'Qwen', match: ['https://chat.qwen.ai/*'] },
-  'chatgpt.com': { name: 'ChatGPT', match: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] },
-  'claude.ai': { name: 'Claude', match: ['https://claude.ai/*'] },
-  'gemini.google.com': { name: 'Gemini', match: ['https://gemini.google.com/*'] },
+  'chat.qwen.ai': { name: 'Qwen', available: true },
 };
+
+const ROADMAP_HOSTS = [
+  { name: 'ChatGPT', available: false },
+  { name: 'Claude', available: false },
+  { name: 'Gemini', available: false },
+];
+
 const DEFAULTS = {
-  backendUrl: 'ws://localhost:3001/extension',
-  // La identidad por proveedor (conn_dom_qwen, conn_dom_openai, …) la declara
-  // cada host adapter según la URL; el usuario NO la elige.
+  backendUrl: 'wss://api.debatidor.com/extension',
   connectionId: 'conn_dom',
   debateId: '',
   apiKey: '',
 };
 
+const VIEW_IDS = ['view-agent', 'view-empty', 'view-first'];
 const $ = (id) => document.getElementById(id);
-let activeTabId = null;
 
-init();
+let activeTabId = null;
+let isSettingsOpen = false;
+let toastTimer = 0;
+
+void init();
 
 async function init() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  activeTabId = tab?.id ?? null;
-  $('agent-url').textContent = tab?.url ?? '';
+  const manifest = chrome.runtime.getManifest();
+  $('app-version').textContent = `Extensión · v${manifest.version}`;
 
   const stored = await chrome.storage.local.get(DEFAULTS);
   fillSettings(stored);
+  renderHostList();
 
   await refresh();
-  setInterval(refresh, 1500);
+  window.setInterval(() => void refresh(), 1800);
 }
-
-// --------------------------------------------------------------- routing
 
 function hostFor(url) {
   if (!url) return null;
@@ -45,146 +47,258 @@ function hostFor(url) {
   }
 }
 
-function show(view) {
-  for (const id of ['view-agent', 'view-empty', 'view-first']) {
-    $(id).classList.toggle('hidden', id !== view);
-    $(id).classList.toggle('flex', id === view);
+function showView(viewId) {
+  if (isSettingsOpen) return;
+  for (const id of VIEW_IDS) {
+    $(id).classList.toggle('hidden', id !== viewId);
   }
 }
 
-let didFocusApiKey = false;
-
 async function refresh() {
-  // 1. ¿Hay API key? Sin ella, todo lo demás es ruido.
-  const stored = await chrome.storage.local.get(['apiKey']);
+  if (isSettingsOpen) return;
+
+  const [stored, tabs] = await Promise.all([
+    chrome.storage.local.get(['apiKey']),
+    chrome.tabs.query({ active: true, currentWindow: true }),
+  ]);
+
+  const tab = tabs[0];
+  activeTabId = tab?.id ?? null;
+
   if (!stored.apiKey) {
-    show('view-first');
+    showView('view-first');
     renderStatus({ socket: 'closed', hasKey: false });
     return;
   }
-  didFocusApiKey = false;
 
-  // 2. ¿La pestaña activa es un host compatible?
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const status = await getRuntimeStatus();
+  renderStatus(status);
+
   const host = hostFor(tab?.url);
-  $('ws-label').textContent = '…';
-  chrome.runtime.sendMessage({ type: 'status' }, (status) => {
-    renderStatus(status);
-    if (!host) {
-      show('view-empty');
-      renderHostList();
-      return;
-    }
-    show('view-agent');
-    renderAgentView(host, tab);
+  if (!host) {
+    showView('view-empty');
+    return;
+  }
+
+  showView('view-agent');
+  await renderAgentView(host, tab);
+}
+
+function getRuntimeStatus() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: 'status' }, (status) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(status ?? null);
+    });
   });
 }
 
 function renderStatus(status) {
-  const dot = $('ws-dot');
-  const label = $('ws-label');
-  dot.className = 'dot';
+  const pill = $('connection-pill');
+  pill.className = 'status-pill';
+
   if (!status) {
-    dot.classList.add('dot-dead');
-    label.textContent = 'SW muerto';
+    pill.classList.add('is-error');
+    $('ws-label').textContent = 'Servicio no disponible';
     return;
   }
+
   if (!status.hasKey) {
-    dot.classList.add('dot-dead');
-    label.textContent = 'Sin API Key';
+    pill.classList.add('is-error');
+    $('ws-label').textContent = 'Sin acceso';
     return;
   }
-  dot.classList.add(status.socket === 'open' ? 'dot-open' : 'dot-closed');
-  label.textContent = status.socket === 'open' ? 'Conectado' : 'Conectando…';
+
+  const connected = status.socket === 'open';
+  pill.classList.add(connected ? 'is-open' : 'is-loading');
+  $('ws-label').textContent = connected ? 'Hub listo' : 'Reconectando';
 }
 
 function renderHostList() {
-  const list = $('host-list');
-  list.innerHTML = '';
-  for (const { name } of Object.values(HOSTS)) {
-    const li = document.createElement('li');
-    li.className = 'text-xs text-slate-400';
-    li.textContent = `• ${name}`;
-    list.appendChild(li);
+  const hostList = $('host-list');
+  hostList.replaceChildren();
+
+  for (const host of [...Object.values(HOSTS), ...ROADMAP_HOSTS]) {
+    const item = document.createElement('div');
+    item.className = `host-item${host.available ? ' is-live' : ''}`;
+
+    const name = document.createElement('strong');
+    name.textContent = host.name;
+
+    const state = document.createElement('span');
+    state.textContent = host.available ? 'Disponible' : 'Próximamente';
+
+    item.append(name, state);
+    hostList.appendChild(item);
   }
 }
 
 async function renderAgentView(host, tab) {
   $('agent-name').textContent = host.name;
-  const stored = await chrome.storage.session.get(`injection:${tab.id}`);
-  const enabled = Boolean(stored[`injection:${tab.id}`]);
-  setToggle(enabled);
+  $('agent-url').textContent = readableTabUrl(tab?.url);
+
+  if (tab?.id == null) {
+    setToggle(false);
+    return;
+  }
+
+  const key = `injection:${tab.id}`;
+  const stored = await chrome.storage.session.get(key);
+  setToggle(Boolean(stored[key]));
 }
 
-// ---------------------------------------------------------------- toggle
-
-function setToggle(enabled) {
-  $('inject-toggle').checked = enabled;
-  $('toggle-hint').textContent = enabled
-    ? 'Activa — recibiendo turnos y transmitiendo respuestas'
-    : 'Apagada';
-}
-
-$('inject-toggle').addEventListener('change', async (event) => {
-  if (activeTabId == null) return;
-  const enabled = event.target.checked;
-  chrome.runtime.sendMessage(
-    { type: 'toggle-injection', tabId: activeTabId, enabled },
-    () => setToggle(enabled)
-  );
-});
-
-// -------------------------------------------------------------- settings
-
-function openSettings(highlightApiKey) {
-  $('settings').classList.remove('hidden');
-  $('btn-settings').textContent = 'Ajustes ▴';
-  if (highlightApiKey && !didFocusApiKey) {
-    $('apiKey').focus();
-    didFocusApiKey = true;
+function readableTabUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+  } catch {
+    return '';
   }
 }
 
-$('btn-goto-key').addEventListener('click', () => {
-  openSettings(true);
-  $('apiKey').focus();
-});
-
-function toggleSettings() {
-  const hidden = $('settings').classList.toggle('hidden');
-  $('btn-settings').textContent = hidden ? 'Ajustes ▾' : 'Ajustes ▴';
+function setToggle(enabled) {
+  $('inject-toggle').checked = enabled;
+  $('toggle-hint').textContent = enabled ? 'Activa · intercambiando turnos' : 'La extensión está en pausa';
+  $('flow-tab-dot').classList.toggle('is-ready', enabled);
+  $('flow-answer-dot').classList.toggle('is-ready', enabled);
 }
 
-$('btn-settings').addEventListener('click', toggleSettings);
+$('inject-toggle').addEventListener('change', (event) => {
+  if (activeTabId == null) {
+    event.target.checked = false;
+    return;
+  }
+
+  const enabled = event.target.checked;
+  chrome.runtime.sendMessage(
+    { type: 'toggle-injection', tabId: activeTabId, enabled },
+    (response) => {
+      if (chrome.runtime.lastError || !response?.ok) {
+        setToggle(!enabled);
+        showToast('No pudimos cambiar el estado', true);
+        return;
+      }
+      setToggle(enabled);
+      showToast(enabled ? 'Pestaña vinculada' : 'Pestaña en pausa');
+    },
+  );
+});
+
+$('btn-open-qwen').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://chat.qwen.ai/' });
+});
+
+function openSettings({ focusApiKey = false } = {}) {
+  isSettingsOpen = true;
+  for (const id of VIEW_IDS) $(id).classList.add('hidden');
+  $('settings').classList.remove('hidden');
+  $('btn-settings').setAttribute('aria-expanded', 'true');
+  $('btn-settings').setAttribute('aria-label', 'Cerrar ajustes');
+  if (focusApiKey) window.setTimeout(() => $('apiKey').focus(), 0);
+}
+
+function closeSettings() {
+  isSettingsOpen = false;
+  $('settings').classList.add('hidden');
+  $('btn-settings').setAttribute('aria-expanded', 'false');
+  $('btn-settings').setAttribute('aria-label', 'Abrir ajustes');
+  void refresh();
+}
+
+$('btn-settings').addEventListener('click', () => {
+  if (isSettingsOpen) closeSettings();
+  else openSettings();
+});
+
+$('btn-close-settings').addEventListener('click', closeSettings);
+$('btn-goto-key').addEventListener('click', () => openSettings({ focusApiKey: true }));
 
 function fillSettings(stored) {
   $('backendUrl').value = stored.backendUrl ?? '';
   $('connectionId').value = stored.connectionId ?? '';
   $('debateId').value = stored.debateId ?? '';
   $('apiKey').value = stored.apiKey ?? '';
+  updateEnvironmentSelection();
 }
 
-$('chip-local').addEventListener('click', () => {
-  $('backendUrl').value = 'ws://localhost:3001/extension';
-});
-$('chip-prod').addEventListener('click', () => {
-  $('backendUrl').value = 'wss://api.debatidor.com/extension';
+function updateEnvironmentSelection() {
+  const current = $('backendUrl').value.trim();
+  for (const id of ['chip-prod', 'chip-local']) {
+    $(id).classList.toggle('is-selected', $(id).dataset.url === current);
+  }
+}
+
+for (const id of ['chip-prod', 'chip-local']) {
+  $(id).addEventListener('click', () => {
+    $('backendUrl').value = $(id).dataset.url;
+    updateEnvironmentSelection();
+  });
+}
+
+$('backendUrl').addEventListener('input', updateEnvironmentSelection);
+
+$('btn-toggle-key').addEventListener('click', () => {
+  const input = $('apiKey');
+  const reveal = input.type === 'password';
+  input.type = reveal ? 'text' : 'password';
+  $('btn-toggle-key').textContent = reveal ? 'Ocultar' : 'Mostrar';
+  $('btn-toggle-key').setAttribute('aria-label', `${reveal ? 'Ocultar' : 'Mostrar'} API Key`);
 });
 
 $('save').addEventListener('click', () => {
-  const config = {};
-  for (const id of ['backendUrl', 'connectionId', 'debateId', 'apiKey']) {
-    config[id] = $(id).value.trim();
+  const config = Object.fromEntries(
+    ['backendUrl', 'connectionId', 'debateId', 'apiKey'].map((id) => [id, $(id).value.trim()]),
+  );
+
+  if (!config.apiKey) {
+    $('apiKey').focus();
+    showToast('Añade una API Key para continuar', true);
+    return;
   }
-  chrome.runtime.sendMessage({ type: 'save-config', config }, () => {
-    closeSettingsAfterSave();
-    refresh();
+
+  if (!isWebSocketUrl(config.backendUrl)) {
+    $('backendUrl').focus();
+    showToast('Usa una dirección ws:// o wss:// válida', true);
+    return;
+  }
+
+  const button = $('save');
+  button.classList.add('is-saving');
+  button.disabled = true;
+  button.querySelector('span').textContent = 'Guardando…';
+
+  chrome.runtime.sendMessage({ type: 'save-config', config }, (response) => {
+    button.classList.remove('is-saving');
+    button.disabled = false;
+    button.querySelector('span').textContent = 'Guardar y reconectar';
+
+    if (chrome.runtime.lastError || !response?.ok) {
+      showToast('No pudimos guardar los ajustes', true);
+      return;
+    }
+
+    closeSettings();
+    showToast('Configuración guardada');
   });
 });
 
-function closeSettingsAfterSave() {
-  const stored = chrome.storage.local.get(['apiKey']);
-  Promise.resolve(stored).then((s) => {
-    if (s.apiKey) toggleSettings(); // colapsa si ya hay key guardada
-  });
+function isWebSocketUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'ws:' || url.protocol === 'wss:';
+  } catch {
+    return false;
+  }
+}
+
+function showToast(message, isError = false) {
+  window.clearTimeout(toastTimer);
+  const toast = $('toast');
+  toast.textContent = message;
+  toast.classList.toggle('is-error', isError);
+  toast.classList.add('is-visible');
+  toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 2200);
 }

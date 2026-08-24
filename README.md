@@ -6,15 +6,13 @@ The extension does not access the local filesystem. File changes are handled by 
 
 ## Install (unpacked)
 
-1. Create an API key in the Debatidor hub: **API Keys**.
-2. Chrome → `chrome://extensions` → Developer mode → **Load unpacked** → this folder.
-3. Open the extension popup, paste the `deb_live_…` key, and choose:
-   - Local: `ws://localhost:3001/extension`
-   - Production: `wss://api.debatidor.com/extension`
+1. Create an API key in the Debatidor Hub under **API Keys**.
+2. Open Chrome → `chrome://extensions` → enable **Developer mode** → choose **Load unpacked** → select this folder.
+3. Open the popup, paste the `deb_live_…` key, and save. Production (`wss://api.debatidor.com/extension`) is selected by default; choose **Local** only when running the Hub on `ws://localhost:3001/extension`.
 4. Open [chat.qwen.ai](https://chat.qwen.ai) while signed in with your own account.
-5. Keep that tab focused. The popup shows **Conectado** when the backend handshake succeeds.
+5. Use **Vincular esta pestaña** in the popup. The header shows **Hub listo** when the backend handshake succeeds.
 
-`connectionId` must match the participant in the room (default `conn_dom_qwen_01`).
+The provider adapter declares its participant identity automatically. Advanced settings use the generic registration ID `conn_dom` by default.
 
 ## How it talks to the backend
 
@@ -27,9 +25,13 @@ The content script only emits `extension.dom_status` and `extension.dom_delta`. 
 | Host | Status |
 |---|---|
 | `chat.qwen.ai` | Supported (selectors versioned in `hosts/qwen.js`) |
-| ChatGPT, Gemini, Claude | Not in this release |
+| ChatGPT, Gemini, Claude | Coming soon; no page access requested in this release |
 
-Qwen’s DOM changes. If the composer is missing, the extension reports `error` instead of sending keys into the page. Reload the tab after a Qwen UI update, or adjust the selectors in `hosts/qwen.js`.
+Qwen's DOM changes. If the composer is missing, the extension reports `error` instead of sending keys into the page. Reload the tab after a Qwen UI update, or adjust the selectors in `hosts/qwen.js`.
+
+## Popup experience
+
+The popup uses the official Debatidor icon at every Chrome-required size and adapts the mascot to onboarding, waiting, and active-agent states. It exposes one primary action per state, keeps API credentials inside `chrome.storage.local`, and labels unreleased integrations as **Próximamente**.
 
 ## Development
 

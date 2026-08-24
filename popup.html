@@ -2,98 +2,154 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Debatidor</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="flex items-center gap-2 px-4 py-3 border-b">
-      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
-        <defs>
-          <linearGradient id="dgrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#6366f1" />
-            <stop offset="1" stop-color="#22d3ee" />
-          </linearGradient>
-        </defs>
-        <rect width="32" height="32" rx="9" fill="url(#dgrad)" />
-        <path
-          d="M11 7h5a9 9 0 0 1 0 18h-5Zm3.4 3.8v10.4h1.6a5.2 5.2 0 0 0 0-10.4Z"
-          fill="#0b0f17"
-          fill-rule="evenodd"
-        />
-      </svg>
-      <div class="flex-1">
-        <div class="font-semibold text-slate-200 text-sm leading-none">Debatidor</div>
-        <div id="app-version" class="text-xs text-slate-500 mt-1">ext</div>
-      </div>
-      <span class="pill"><span id="ws-dot" class="dot dot-closed"></span><span id="ws-label">…</span></span>
-    </header>
-
-    <!-- Vista: agente detectado en la pestaña activa -->
-    <main id="view-agent" class="hidden flex-col gap-3 p-4">
-      <section class="card">
-        <div class="flex items-center gap-2">
-          <span class="dot dot-live"></span>
-          <span class="text-xs text-slate-400">Agente detectado:</span>
-          <strong id="agent-name" class="text-sm text-white font-semibold">…</strong>
-        </div>
-        <div id="agent-url" class="text-xs text-slate-500 mt-1 truncate"></div>
-        <label class="toggle-row mt-3">
-          <span>
-            <span class="text-sm text-slate-200 font-medium">Inyección en esta pestaña</span>
-            <span id="toggle-hint" class="block text-xs text-slate-500 mt-1">Apagada</span>
+    <div class="app-shell">
+      <header class="app-header">
+        <a class="brand" href="https://debatidor.com" target="_blank" rel="noreferrer" aria-label="Abrir Debatidor">
+          <img class="brand-mark" src="assets/icon-48.png" alt="" />
+          <span class="brand-copy">
+            <strong>Debatidor</strong>
+            <span id="app-version">Extensión</span>
           </span>
-          <input id="inject-toggle" class="switch" type="checkbox" />
-        </label>
-      </section>
-      <p class="text-xs text-slate-500 leading-relaxed">
-        Con la inyección activa, esta pestaña recibe turnos de la sala y transmite sus respuestas al Hub.
-      </p>
-    </main>
-
-    <!-- Vista: primer arranque sin API Key -->
-    <main id="view-first" class="hidden flex-col gap-3 p-4">
-      <section class="card">
-        <div class="text-sm text-slate-200 font-medium">Falta tu API Key</div>
-        <p class="text-xs text-slate-400 mt-2 leading-relaxed">
-          Pégala en <strong class="text-slate-300">Ajustes</strong> para conectar con el Hub. La
-          guardamos una sola vez.
-        </p>
-        <button id="btn-goto-key" class="btn-primary" style="margin-top: 12px" type="button">
-          Pegar API Key
-        </button>
-      </section>
-    </main>
-
-    <!-- Vista: pestaña sin host compatible -->
-    <main id="view-empty" class="hidden flex-col gap-3 p-4">
-      <section class="card">
-        <div class="text-sm text-slate-200 font-medium">Sin agente en esta pestaña</div>
-        <p class="text-xs text-slate-400 mt-2 leading-relaxed">
-          Abre uno de los hosts compatibles para vincularlo a tu sala:
-        </p>
-        <ul id="host-list" class="flex-col gap-1 mt-2" style="list-style: none; margin: 0; padding: 0"></ul>
-      </section>
-    </main>
-
-    <footer class="border-t">
-      <button id="btn-settings" class="btn-ghost" type="button">Ajustes ▾</button>
-      <section id="settings" class="hidden px-4 pb-4 pt-1 border-t">
-        <label class="label" for="apiKey">API Key del Hub</label>
-        <input id="apiKey" class="input" type="password" autocomplete="off" placeholder="deb_live_…" />
-        <label class="label" for="backendUrl">WebSocket</label>
-        <input id="backendUrl" class="input" spellcheck="false" />
-        <div class="flex gap-2 mt-2">
-          <button id="chip-local" class="chip" type="button">Local</button>
-          <button id="chip-prod" class="chip" type="button">Producción</button>
+        </a>
+        <div class="header-actions">
+          <span id="connection-pill" class="status-pill is-loading" role="status" aria-live="polite">
+            <span id="ws-dot" class="status-dot"></span>
+            <span id="ws-label">Comprobando</span>
+          </span>
+          <button id="btn-settings" class="icon-button" type="button" aria-label="Abrir ajustes" aria-expanded="false" aria-controls="settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.25A3.25 3.25 0 1 0 12 8.75a3.25 3.25 0 0 0 0 6.5Z" />
+              <path d="M19.1 13.1a7.6 7.6 0 0 0 .05-2.2l1.55-1.2-1.8-3.12-1.82.74a8 8 0 0 0-1.9-1.1L14.9 4.3h-3.6l-.28 1.92a8 8 0 0 0-1.9 1.1l-1.82-.74L5.5 9.7l1.55 1.2a7.6 7.6 0 0 0 0 2.2L5.5 14.3l1.8 3.12 1.82-.74a8 8 0 0 0 1.9 1.1l.28 1.92h3.6l.28-1.92a8 8 0 0 0 1.9-1.1l1.82.74 1.8-3.12-1.6-1.2Z" />
+            </svg>
+          </button>
         </div>
-        <label class="label" for="connectionId">connectionId</label>
-        <input id="connectionId" class="input" spellcheck="false" />
-        <label class="label" for="debateId">debateId (opcional)</label>
-        <input id="debateId" class="input" spellcheck="false" />
-        <button id="save" class="btn-primary" style="margin-top: 14px" type="button">Guardar y reconectar</button>
-      </section>
-    </footer>
+      </header>
 
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+      <main id="view-first" class="view hidden">
+        <section class="hero-card hero-card--welcome">
+          <div class="hero-copy">
+            <span class="eyebrow"><span class="eyebrow-dot"></span>Primer despegue</span>
+            <h1>Conecta tu extensión</h1>
+            <p>Añade tu API Key para enlazar este navegador con tus debates.</p>
+            <button id="btn-goto-key" class="button button--primary" type="button">
+              Configurar acceso
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4.5 5.5 5.5-5.5 5.5" /></svg>
+            </button>
+          </div>
+          <img class="mascot mascot--welcome" src="assets/mascot-welcome.png" alt="Astronauta de Debatidor saludando" />
+        </section>
+        <section class="privacy-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 8 6.5 9.8 3.8-1.8 6.5-5.6 6.5-9.8V5.7L12 3Z" /><path d="m9.2 12 1.8 1.8 3.9-4.1" /></svg>
+          <span>La clave se guarda únicamente en Chrome y nunca se comparte con la página abierta.</span>
+        </section>
+      </main>
+
+      <main id="view-empty" class="view hidden">
+        <section class="hero-card hero-card--empty">
+          <div class="hero-copy">
+            <span class="eyebrow"><span class="eyebrow-dot"></span>Listo para debatir</span>
+            <h1>Abre un agente compatible</h1>
+            <p>Debatidor necesita una pestaña de Qwen para recibir turnos y devolver respuestas.</p>
+            <button id="btn-open-qwen" class="button button--primary" type="button">
+              Abrir Qwen
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 14 14 6m-6 0h6v6" /></svg>
+            </button>
+          </div>
+          <img class="mascot mascot--idle" src="assets/mascot-idle.png" alt="Astronauta de Debatidor esperando" />
+        </section>
+        <section class="compatibility-card" aria-labelledby="compatibility-title">
+          <div class="section-heading">
+            <div>
+              <span class="section-kicker">Integraciones</span>
+              <h2 id="compatibility-title">Agentes disponibles</h2>
+            </div>
+            <span class="count-badge">1 activo</span>
+          </div>
+          <div id="host-list" class="host-list"></div>
+        </section>
+      </main>
+
+      <main id="view-agent" class="view hidden">
+        <section class="hero-card hero-card--active">
+          <div class="hero-copy">
+            <span class="eyebrow"><span class="eyebrow-dot"></span>Agente detectado</span>
+            <h1><span id="agent-name">Qwen</span> está a bordo</h1>
+            <p id="agent-url" class="agent-url"></p>
+          </div>
+          <img class="mascot mascot--active" src="assets/mascot-active.png" alt="Astronauta de Debatidor conversando" />
+        </section>
+        <section class="control-card">
+          <div class="control-copy">
+            <span class="control-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M8 12h8M12 8l4 4-4 4" /><path d="M5 5.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" /></svg>
+            </span>
+            <span>
+              <strong>Vincular esta pestaña</strong>
+              <span id="toggle-hint">La extensión está en pausa</span>
+            </span>
+          </div>
+          <label class="switch-wrap">
+            <span class="sr-only">Vincular esta pestaña</span>
+            <input id="inject-toggle" class="switch" type="checkbox" />
+            <span class="switch-track"></span>
+          </label>
+        </section>
+        <div class="flow" aria-label="Flujo de la extensión">
+          <span><i class="flow-dot is-ready"></i>Sala</span>
+          <i class="flow-line"></i>
+          <span><i id="flow-tab-dot" class="flow-dot"></i>Pestaña</span>
+          <i class="flow-line"></i>
+          <span><i id="flow-answer-dot" class="flow-dot"></i>Respuesta</span>
+        </div>
+        <p class="helper-text">Al activarla, Qwen recibirá los turnos de la sala y enviará sus respuestas al Hub.</p>
+      </main>
+
+      <aside id="settings" class="settings-panel hidden" aria-labelledby="settings-title">
+        <div class="settings-heading">
+          <div>
+            <span class="section-kicker">Conexión segura</span>
+            <h2 id="settings-title">Ajustes del Hub</h2>
+          </div>
+          <button id="btn-close-settings" class="icon-button icon-button--small" type="button" aria-label="Cerrar ajustes">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
+        </div>
+        <label class="field-label" for="apiKey">API Key</label>
+        <div class="password-field">
+          <input id="apiKey" class="input" type="password" autocomplete="off" placeholder="deb_live_…" />
+          <button id="btn-toggle-key" class="input-action" type="button" aria-label="Mostrar API Key">Mostrar</button>
+        </div>
+        <p class="field-help">Se almacena en el espacio local privado de la extensión.</p>
+        <label class="field-label" for="backendUrl">Entorno</label>
+        <div class="segmented" role="group" aria-label="Elegir entorno">
+          <button id="chip-prod" class="segment" type="button" data-url="wss://api.debatidor.com/extension">Producción</button>
+          <button id="chip-local" class="segment" type="button" data-url="ws://localhost:3001/extension">Local</button>
+        </div>
+        <input id="backendUrl" class="input input--mono" spellcheck="false" aria-label="URL WebSocket" />
+        <details class="advanced-settings">
+          <summary>Opciones avanzadas</summary>
+          <label class="field-label" for="connectionId">ID de conexión</label>
+          <input id="connectionId" class="input input--mono" spellcheck="false" />
+          <label class="field-label" for="debateId">ID de debate <span>opcional</span></label>
+          <input id="debateId" class="input input--mono" spellcheck="false" />
+        </details>
+        <button id="save" class="button button--primary button--save" type="button">
+          <span>Guardar y reconectar</span>
+        </button>
+      </aside>
+
+      <footer class="app-footer">
+        <span>Hecho para debates con criterio</span>
+        <a href="https://debatidor.com" target="_blank" rel="noreferrer">debatidor.com</a>
+      </footer>
+    </div>
     <script src="popup.js"></script>
   </body>
 </html>

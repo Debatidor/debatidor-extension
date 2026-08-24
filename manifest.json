@@ -1,15 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Debatidor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page. Does not access the disk.",
   "permissions": ["storage", "tabs"],
+  "icons": {
+    "16": "assets/icon-16.png",
+    "32": "assets/icon-32.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_title": "Debatidor",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "32": "assets/icon-32.png",
+      "48": "assets/icon-48.png",
+      "128": "assets/icon-128.png"
+    }
   },
   "options_ui": {
     "page": "popup.html",
@@ -17,12 +29,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://chat.qwen.ai/*",
-        "https://chatgpt.com/*",
-        "https://claude.ai/*",
-        "https://gemini.google.com/*"
-      ],
+      "matches": ["https://chat.qwen.ai/*"],
       "js": ["hosts/qwen.js", "content.js"],
       "run_at": "document_idle"
     }
