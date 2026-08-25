@@ -42,7 +42,9 @@
       return;
     }
     retryAttempts = 0;
-    port.onMessage.addListener(onWire);
+    port.onMessage.addListener((msg) => {
+      void onWire(msg);
+    });
     port.onDisconnect.addListener(() => {
       port = null;
       // SW suspendido o recargado: volver a levantar el puerto. Si el propio
@@ -63,7 +65,7 @@
     if (port) send({ type: 'ping' }, { quiet: true });
   }, 20000);
 
-  function onWire(msg) {
+  async function onWire(msg) {
     if (msg?.type === 'config') {
       connectionId = msg.connectionId ?? connectionId;
       debateId = msg.debateId ?? debateId;
@@ -86,8 +88,10 @@
       msg.systemPreamble && host.isFreshConversation?.()
         ? `${msg.systemPreamble}\n\n`
         : '';
-    const result = host.injectPrompt(`${preamble}${msg.promptText ?? ''}`);
-    if (!result.ok) emit(statusEvent('error'));
+    const result = await Promise.resolve(
+      host.injectPrompt(`${preamble}${msg.promptText ?? ''}`),
+    );
+    if (!result?.ok) emit(statusEvent('error'));
   }
 
   // ------------------------------------------------------------ observer

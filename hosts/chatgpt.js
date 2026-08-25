@@ -205,7 +205,7 @@
     isFreshConversation() {
       return !document.querySelector(ASSISTANT);
     },
-    injectPrompt(text) {
+    async injectPrompt(text) {
       const box = composer();
       if (!box) {
         return { ok: false, reason: 'composer_missing' };
@@ -214,28 +214,47 @@
       if (!insertText(box, text)) {
         return { ok: false, reason: 'insert_failed' };
       }
-      // El botón enviar SOLO existe con texto; si React aún no lo montó,
-      // ChatGPT también envía con Enter desde el composer enfocado.
-      const send = first(SEND);
-      const disabled =
-        send instanceof HTMLButtonElement &&
-        (send.disabled || send.getAttribute('aria-disabled') === 'true');
-      if (send && !disabled) {
-        send.click();
-        return { ok: true, via: 'button' };
+      // ⚠️ El botón ENVIAR solo existe cuando React ya procesó el texto
+      // (un tick después de insertar). Consultarlo inmediatamente = no existe
+      // → caeríamos al Enter sintético, que ChatGPT ignora (no es trusted).
+      // Espera activa breve por el botón; luego click + VERIFICACIÓN de que
+      // el composer quedó vacío (el mensaje realmente se fue). Si no se fue,
+      // reintento con Enter real sintetizado vía keydown/keyup.
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      let send = null;
+      for (let attempt = 0; attempt < 10 && !send; attempt += 1) {
+        send = first(SEND);
+        const disabled =
+          send instanceof HTMLButtonElement &&
+          (send.disabled || send.getAttribute('aria-disabled') === 'true');
+        if (!send || disabled) {
+          send = null;
+          await sleep(120);
+        }
       }
-      const key = {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true,
-      };
-      box.dispatchEvent(new KeyboardEvent('keydown', key));
-      box.dispatchEvent(new KeyboardEvent('keypress', key));
-      box.dispatchEvent(new KeyboardEvent('keyup', key));
-      return { ok: true, via: 'enter' };
+      if (send) {
+        send.click();
+        await sleep(250);
+      }
+      if (composerText(box) !== '') {
+        // El click no bastó (o nunca hubo botón): Enter desde el composer.
+        const key = {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+        };
+        box.dispatchEvent(new KeyboardEvent('keydown', key));
+        box.dispatchEvent(new KeyboardEvent('keypress', key));
+        box.dispatchEvent(new KeyboardEvent('keyup', key));
+        await sleep(350);
+      }
+      if (composerText(box) !== '') {
+        return { ok: false, reason: 'send_unverified' };
+      }
+      return { ok: true, via: send ? 'button' : 'enter' };
     },
   };
 })(globalThis);
