@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Debatidor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page. Does not access the disk.",
   "permissions": ["storage", "tabs"],
   "icons": {
@@ -31,6 +31,11 @@
     {
       "matches": ["https://chat.qwen.ai/*"],
       "js": ["hosts/qwen.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["hosts/chatgpt.js", "content.js"],
       "run_at": "document_idle"
     }
   ]
