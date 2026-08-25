@@ -143,10 +143,13 @@
     if (status === 'generating') {
       const current = host.readAnswer();
       if (current && current !== lastAnswer) {
-        const suffix = current.startsWith(lastAnswer) ? current.slice(lastAnswer.length) : current;
+        // Snapshot completo, SIEMPRE (isComplete=false solo indica que sigue
+        // vivo). Concatenar sufijos con snapshots de ChatGPT producía basura
+        // tipo "PensandoEntendido…Entendido…" en la consola y en la arena:
+        // el DOM reordena/re-renderiza y el "sufijo" repetía todo.
         lastAnswer = current;
         sequenceNumber += 1;
-        emit(deltaEvent(suffix, false));
+        emit(deltaEvent(current, false));
       }
     }
   }
