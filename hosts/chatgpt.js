@@ -57,6 +57,8 @@
   let answerChangedAt = 0;
   let footerSeenAt = 0;
   const SETTLE_MS = 900;
+  /** Watchdog: texto estable este tiempo sin stop visible = terminado. */
+  const FORCE_WAIT_MS = 7000;
 
   function trackAnswer(text, node) {
     // Cambio de turno (otro message-id): resetear el snapshot para no
@@ -191,13 +193,24 @@
       if (footerDone) return 'generating'; // settle breve tras el footer
 
       // 2) Flags de generación (incluyen la fase thinking de gpt-5).
-      const hardBusy =
-        Boolean(document.querySelector(STREAM_ACTIVE)) || Boolean(first(STOP));
-      if (hardBusy) return 'generating';
+      const stopVisible = Boolean(first(STOP));
+      if (stopVisible) return 'generating';
+      if (document.querySelector(STREAM_ACTIVE)) {
+        // data-stream-active puede quedar pegado en true tras terminar
+        // (bug de prod): si el texto lleva estable >7s sin stop, es mentira.
+        const textStableFor = Date.now() - answerChangedAt;
+        if (textStableFor < FORCE_WAIT_MS) return 'generating';
+        return 'waiting'; // watchdog: texto congelado + sin stop = fin real
+      }
 
-      // 3) Sin footer aún: con texto → generando; sin texto → thinking.
+      // 3) Sin footer ni flags: con texto → generando; sin texto → thinking.
+      //    Watchdog idéntico para el caso "footer invisible" (turno que se
+      //    quedó generating eterno en prod con un bloque de código en pantalla).
       if (node && !text) return 'thinking';
-      if (text) return 'generating';
+      if (text) {
+        if (Date.now() - answerChangedAt < FORCE_WAIT_MS) return 'generating';
+        return 'waiting'; // texto congelado 7s sin ninguna señal de vida = fin
+      }
       return 'waiting';
     },
     readAnswer() {
