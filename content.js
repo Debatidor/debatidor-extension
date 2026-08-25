@@ -21,6 +21,7 @@
 
   let lastStatus = null;
   let lastAnswer = '';
+  let completedEmitted = false;
   let sequenceNumber = 0;
   let sawStream = false;
   let turnId = null;
@@ -82,6 +83,7 @@
     lastAnswer = '';
     sequenceNumber = 0;
     sawStream = false;
+    completedEmitted = false;
     // La preamble de rol solo entra en un hilo fresco; en un hilo en curso
     // el contexto ya está y repetirla ensucia el chat visible.
     const preamble =
@@ -112,17 +114,29 @@
     if (status !== lastStatus) {
       lastStatus = status;
       emit(statusEvent(status));
-      if (status === 'waiting' && sawStream) {
+      if (status === 'waiting' && sawStream && !completedEmitted) {
         // chat-v2 a veces renderiza la respuesta de golpe (thinking → waiting
         // sin una fase 'generating' observable con texto). Leer la respuesta
         // final directo del host en vez de depender de los deltas intermedios.
-        const finalText = host.readAnswer() || lastAnswer;
-        if (finalText) {
+        // ⚠️ UNA SOLA VEZ por turno: el DOM nuevo oscila waiting↔generating y
+        // sin esta guarda el backend recibe DOS turn.completed → cada tool se
+        // despacha dos veces → se queman los hops del guardrail (prod bug).
+        //
+        // ⚠️ SETTLE de lectura: el visor de código (CodeMirror) sigue montando
+        // su DOM después de que el footer aparece — leer de inmediato puede
+        // capturar un JSON CORTADO (visto en prod: "high/manuscript/0).
+        // Se relee tras un pequeño asentamiento y solo si sigue en waiting.
+        window.setTimeout(() => {
+          if (injectionEnabled === 'disabled') return;
+          if (host.detectStatus() !== 'waiting') return; // volvió a generar
+          const finalText = host.readAnswer() || lastAnswer;
+          if (!finalText) return;
           if (finalText !== lastAnswer) sequenceNumber += 1;
           lastAnswer = finalText;
+          completedEmitted = true;
           emit(deltaEvent(finalText, true));
           console.debug(`[debatidor] turno completo emitido (${finalText.length} chars)`);
-        }
+        }, 450);
         sawStream = false;
       }
     }

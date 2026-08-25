@@ -98,7 +98,13 @@
   function answerText(node) {
     if (!node) return '';
     const body = node.querySelector(ANSWER_BODY) ?? node;
-    return (body.innerText ?? '').trim();
+    // Clonar y quitar controles: los headers de thinking ("Pensando…",
+    // "Procesó durante 35s") son <button>, igual que chips de citas y copiar.
+    // Leer del clon (textContent-fallback) además hace la lectura estable e
+    // independiente del layout.
+    const clone = body.cloneNode(true);
+    for (const el of clone.querySelectorAll('button, .sr-only')) el.remove();
+    return ((clone.innerText ?? clone.textContent) ?? '').trim();
   }
 
   /**
