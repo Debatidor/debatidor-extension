@@ -52,11 +52,24 @@
   ];
 
   let composerSeenAt = 0;
+  let answerKey = '';
   let answerSnapshot = '';
   let answerChangedAt = 0;
   const SETTLE_MS = 900;
+  /** Si el footer de acciones está y el texto no cambia en este window,
+   * la respuesta está TERMINADA aunque un flag de stream siga pegado
+   * (bug visto en producción: data-stream-active persistente). */
+  const STABLE_MS = 1500;
 
-  function trackAnswer(text) {
+  function trackAnswer(text, node) {
+    // Cambio de turno (otro message-id): resetear el snapshot para no
+    // comparar peras con manzanas ni producir sufijos basura.
+    const key = node?.getAttribute('data-message-id') ?? '';
+    if (key !== answerKey) {
+      answerKey = key;
+      answerSnapshot = '';
+      answerChangedAt = Date.now();
+    }
     if (text !== answerSnapshot) {
       answerSnapshot = text;
       answerChangedAt = Date.now();
@@ -145,22 +158,33 @@
       }
       composerSeenAt = Date.now();
 
-      // 1) Señales duras de generación (incluyen la fase thinking de gpt-5).
-      if (document.querySelector(STREAM_ACTIVE)) return 'generating';
-      if (first(STOP)) return 'generating';
-
-      // 2) Turno assistant: con texto → footer decide; sin texto → thinking.
       const node = answerNode();
       const text = answerText(node);
-      trackAnswer(text);
+      trackAnswer(text, node);
+      const stableFor = Date.now() - answerChangedAt;
+      const footerDone = node ? isDone(node) : false;
+      const hardBusy =
+        Boolean(document.querySelector(STREAM_ACTIVE)) || Boolean(first(STOP));
+
+      // 1) SEÑAL PRIMARIA: footer de acciones del turno + texto estable.
+      //    Gana sobre cualquier flag de stream (los flags pueden quedar
+      //    pegados en true; el footer no miente: solo existe al terminar).
+      if (node && text && footerDone && stableFor > STABLE_MS) {
+        return 'waiting';
+      }
+
+      // 2) Flags de generación (incluyen la fase thinking de gpt-5).
+      if (hardBusy) return 'generating';
+
+      // 3) Turno assistant: con texto sin footer → generando; sin texto →
+      //    thinking (el turno existe pero aún no hay tokens).
       if (node && !text) {
-        return isDone(node) ? 'waiting' : 'thinking';
+        return footerDone ? 'waiting' : 'thinking';
       }
       if (text) {
-        const done = isDone(node);
-        if (!done) return 'generating';
+        if (!footerDone) return 'generating';
         // Settle: el footer aparece un instante después del último token.
-        if (Date.now() - answerChangedAt < SETTLE_MS) return 'generating';
+        if (stableFor < SETTLE_MS) return 'generating';
         return 'waiting';
       }
       return 'waiting';
