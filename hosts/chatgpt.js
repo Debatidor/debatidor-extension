@@ -55,11 +55,8 @@
   let answerKey = '';
   let answerSnapshot = '';
   let answerChangedAt = 0;
+  let footerSeenAt = 0;
   const SETTLE_MS = 900;
-  /** Si el footer de acciones está y el texto no cambia en este window,
-   * la respuesta está TERMINADA aunque un flag de stream siga pegado
-   * (bug visto en producción: data-stream-active persistente). */
-  const STABLE_MS = 1500;
 
   function trackAnswer(text, node) {
     // Cambio de turno (otro message-id): resetear el snapshot para no
@@ -104,9 +101,19 @@
     return (body.innerText ?? '').trim();
   }
 
-  /** El footer de acciones del turno SOLO existe con la respuesta completa. */
+  /**
+   * El footer de acciones del turno SOLO existe con la respuesta completa.
+   * ⚠️ SCOPING: hay que buscarlo en la SECCIÓN del turno
+   * (section[data-turn="assistant"]), NO en el div del mensaje:
+   * en el DOM real el footer es HERMANO de [data-message-author-role],
+   * no descendiente — scoping al mensaje = footer invisible = turno
+   * eternamente 'generating' (bug de producción 2026-08-25).
+   */
   function isDone(node) {
-    const shell = node.closest(ASSISTANT) ?? node;
+    const shell =
+      node.closest('section[data-turn="assistant"], [data-testid^="conversation-turn"]') ??
+      node.parentElement ??
+      node;
     return Boolean(shell && DONE_MARKS.some((sel) => shell.querySelector(sel)));
   }
 
@@ -161,32 +168,30 @@
       const node = answerNode();
       const text = answerText(node);
       trackAnswer(text, node);
-      const stableFor = Date.now() - answerChangedAt;
       const footerDone = node ? isDone(node) : false;
-      const hardBusy =
-        Boolean(document.querySelector(STREAM_ACTIVE)) || Boolean(first(STOP));
+      if (!footerDone) {
+        footerSeenAt = 0;
+      } else if (!footerSeenAt) {
+        footerSeenAt = Date.now();
+      }
 
-      // 1) SEÑAL PRIMARIA: footer de acciones del turno + texto estable.
-      //    Gana sobre cualquier flag de stream (los flags pueden quedar
-      //    pegados en true; el footer no miente: solo existe al terminar).
-      if (node && text && footerDone && stableFor > STABLE_MS) {
+      // 1) SEÑAL PRIMARIA: footer del turno + settle por TIEMPO DEL FOOTER
+      //    (no por estabilidad del texto: el innerText oscila por el
+      //    re-render del visor de código). El footer GANA sobre cualquier
+      //    flag de stream pegado (data-stream-active queda true tras acabar).
+      if (footerDone && Date.now() - footerSeenAt >= SETTLE_MS) {
         return 'waiting';
       }
+      if (footerDone) return 'generating'; // settle breve tras el footer
 
       // 2) Flags de generación (incluyen la fase thinking de gpt-5).
+      const hardBusy =
+        Boolean(document.querySelector(STREAM_ACTIVE)) || Boolean(first(STOP));
       if (hardBusy) return 'generating';
 
-      // 3) Turno assistant: con texto sin footer → generando; sin texto →
-      //    thinking (el turno existe pero aún no hay tokens).
-      if (node && !text) {
-        return footerDone ? 'waiting' : 'thinking';
-      }
-      if (text) {
-        if (!footerDone) return 'generating';
-        // Settle: el footer aparece un instante después del último token.
-        if (stableFor < SETTLE_MS) return 'generating';
-        return 'waiting';
-      }
+      // 3) Sin footer aún: con texto → generando; sin texto → thinking.
+      if (node && !text) return 'thinking';
+      if (text) return 'generating';
       return 'waiting';
     },
     readAnswer() {
