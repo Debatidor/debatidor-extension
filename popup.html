@@ -56,11 +56,8 @@
           <div class="hero-copy">
             <span class="eyebrow"><span class="eyebrow-dot"></span>Listo para debatir</span>
             <h1>Abre un agente compatible</h1>
-            <p>Debatidor necesita una pestaña de Qwen para recibir turnos y devolver respuestas.</p>
-            <button id="btn-open-qwen" class="button button--primary" type="button">
-              Abrir Qwen
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 14 14 6m-6 0h6v6" /></svg>
-            </button>
+            <p>Debatidor necesita una pestaña de un chat compatible (Qwen, ChatGPT…) para recibir turnos y devolver respuestas.</p>
+            <div id="open-host-buttons" class="open-host-buttons"></div>
           </div>
           <img class="mascot mascot--idle" src="assets/mascot-idle.png" alt="Astronauta de Debatidor esperando" />
         </section>
@@ -70,7 +67,7 @@
               <span class="section-kicker">Integraciones</span>
               <h2 id="compatibility-title">Agentes disponibles</h2>
             </div>
-            <span class="count-badge">1 activo</span>
+            <span id="host-count" class="count-badge">1 activo</span>
           </div>
           <div id="host-list" class="host-list"></div>
         </section>
@@ -108,7 +105,7 @@
           <i class="flow-line"></i>
           <span><i id="flow-answer-dot" class="flow-dot"></i>Respuesta</span>
         </div>
-        <p class="helper-text">Al activarla, Qwen recibirá los turnos de la sala y enviará sus respuestas al Hub.</p>
+        <p class="helper-text">Al activarla, el agente de esta pestaña recibirá los turnos de la sala y enviará sus respuestas al Hub.</p>
       </main>
 
       <aside id="settings" class="settings-panel hidden" aria-labelledby="settings-title">

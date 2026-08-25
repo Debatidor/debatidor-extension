@@ -75,3 +75,19 @@ test('los dos hosts declaran connectionIds DISTINTOS (multi-modelo)', () => {
   const chatgpt = loadHost('chatgpt.js');
   assert.notEqual(qwen.connectionId, chatgpt.connectionId);
 });
+
+test('popup: HOSTS registra ChatGPT como disponible (nada de "Próximamente")', () => {
+  const source = readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
+  const hostsBlock = source.split('const HOSTS =')[1]?.split('};')[0] ?? '';
+  assert.ok(hostsBlock.includes("'chatgpt.com'"), 'chatgpt.com falta en HOSTS');
+  assert.ok(!/available:\s*false/.test(hostsBlock), 'un host vivo marcado unavailable');
+  const roadmapBlock = source.split('const ROADMAP_HOSTS =')[1]?.split('];')[0] ?? '';
+  assert.ok(!roadmapBlock.includes('ChatGPT'), 'ChatGPT sigue en roadmap');
+});
+
+test('popup.html: sin hardcodes de Qwen en la vista vacía', () => {
+  const html = readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
+  const emptyView = html.split('id="view-empty"')[1]?.split('</main>')[0] ?? '';
+  assert.ok(!emptyView.includes('btn-open-qwen'), 'botón viejo Abrir Qwen sigue en el HTML');
+  assert.match(emptyView, /open-host-buttons/);
+});

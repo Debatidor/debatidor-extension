@@ -1,11 +1,11 @@
 // Debatidor popup: a compact control surface for the active browser agent.
 
 const HOSTS = {
-  'chat.qwen.ai': { name: 'Qwen', available: true },
+  'chat.qwen.ai': { name: 'Qwen', url: 'https://chat.qwen.ai/', available: true },
+  'chatgpt.com': { name: 'ChatGPT', url: 'https://chatgpt.com/', available: true },
 };
 
 const ROADMAP_HOSTS = [
-  { name: 'ChatGPT', available: false },
   { name: 'Claude', available: false },
   { name: 'Gemini', available: false },
 ];
@@ -33,6 +33,7 @@ async function init() {
   const stored = await chrome.storage.local.get(DEFAULTS);
   fillSettings(stored);
   renderHostList();
+  renderOpenHostButtons();
 
   await refresh();
   window.setInterval(() => void refresh(), 1800);
@@ -121,6 +122,10 @@ function renderHostList() {
   const hostList = $('host-list');
   hostList.replaceChildren();
 
+  const liveCount = Object.values(HOSTS).filter((h) => h.available).length;
+  const countBadge = $('host-count');
+  if (countBadge) countBadge.textContent = `${liveCount} activos`;
+
   for (const host of [...Object.values(HOSTS), ...ROADMAP_HOSTS]) {
     const item = document.createElement('div');
     item.className = `host-item${host.available ? ' is-live' : ''}`;
@@ -133,6 +138,33 @@ function renderHostList() {
 
     item.append(name, state);
     hostList.appendChild(item);
+  }
+}
+
+/** Botones "Abrir <host>" para cada host vivo (vista sin pestaña compatible). */
+function renderOpenHostButtons() {
+  const wrap = $('open-host-buttons');
+  if (!wrap) return;
+  wrap.replaceChildren();
+
+  for (const host of Object.values(HOSTS).filter((h) => h.available)) {
+    const button = document.createElement('button');
+    button.className = 'button button--primary';
+    button.type = 'button';
+    button.textContent = `Abrir ${host.name}`;
+
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 20 20');
+    icon.setAttribute('aria-hidden', 'true');
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    arrow.setAttribute('d', 'M6 14 14 6m-6 0h6v6');
+    icon.appendChild(arrow);
+    button.appendChild(icon);
+
+    button.addEventListener('click', () => {
+      chrome.tabs.create({ url: host.url });
+    });
+    wrap.appendChild(button);
   }
 }
 
@@ -185,10 +217,6 @@ $('inject-toggle').addEventListener('change', (event) => {
       showToast(enabled ? 'Pestaña vinculada' : 'Pestaña en pausa');
     },
   );
-});
-
-$('btn-open-qwen').addEventListener('click', () => {
-  chrome.tabs.create({ url: 'https://chat.qwen.ai/' });
 });
 
 function openSettings({ focusApiKey = false } = {}) {
