@@ -193,8 +193,13 @@
       if (footerDone) return 'generating'; // settle breve tras el footer
 
       // 2) Flags de generación (incluyen la fase thinking de gpt-5).
+      //    ⚠️ El stop puede quedarse pegado en un stall del host con el texto
+      //    ya congelado: mismo watchdog de texto congelado → fin real.
       const stopVisible = Boolean(first(STOP));
-      if (stopVisible) return 'generating';
+      if (stopVisible) {
+        if (text && Date.now() - answerChangedAt >= FORCE_WAIT_MS) return 'waiting';
+        return 'generating';
+      }
       if (document.querySelector(STREAM_ACTIVE)) {
         // data-stream-active puede quedar pegado en true tras terminar
         // (bug de prod): si el texto lleva estable >7s sin stop, es mentira.

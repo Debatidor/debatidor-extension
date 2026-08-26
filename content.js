@@ -24,6 +24,7 @@
   let completedEmitted = false;
   let sequenceNumber = 0;
   let sawStream = false;
+  let settleTimer = 0;
   let turnId = null;
   // Identidad derivada del host (conn_dom_qwen, conn_dom_openai, …): nunca
   // hardcodeada. El prompt dirigido a otro host se ignora.
@@ -84,6 +85,10 @@
     sequenceNumber = 0;
     sawStream = false;
     completedEmitted = false;
+    if (settleTimer) {
+      clearTimeout(settleTimer);
+      settleTimer = 0;
+    }
     // La preamble de rol solo entra en un hilo fresco; en un hilo en curso
     // el contexto ya está y repetirla ensucia el chat visible.
     const preamble =
@@ -126,18 +131,28 @@
         // su DOM después de que el footer aparece — leer de inmediato puede
         // capturar un JSON CORTADO (visto en prod: "high/manuscript/0).
         // Se relee tras un pequeño asentamiento y solo si sigue en waiting.
-        window.setTimeout(() => {
-          if (injectionEnabled === 'disabled') return;
-          if (host.detectStatus() !== 'waiting') return; // volvió a generar
-          const finalText = host.readAnswer() || lastAnswer;
-          if (!finalText) return;
-          if (finalText !== lastAnswer) sequenceNumber += 1;
-          lastAnswer = finalText;
-          completedEmitted = true;
-          emit(deltaEvent(finalText, true));
-          console.debug(`[debatidor] turno completo emitido (${finalText.length} chars)`);
-        }, 450);
-        sawStream = false;
+        //
+        // ⚠️ Si el settle falla porque el estado volvió a 'generating' (el DOM
+        // oscila waiting↔generating a mitad de turno), NO se baja sawStream
+        // aquí: hacerlo dejaba el turno sin completar para siempre cuando el
+        // segundo paso a waiting ya no veía stream (bug CLI colgado 2026-08-26).
+        // sawStream solo se baja cuando el completion REALMENTE se emitió.
+        if (!settleTimer) {
+          settleTimer = window.setTimeout(() => {
+            settleTimer = 0;
+            if (injectionEnabled === 'disabled') return;
+            if (completedEmitted) return;
+            if (host.detectStatus() !== 'waiting') return; // volvió a generar
+            const finalText = host.readAnswer() || lastAnswer;
+            if (!finalText) return;
+            if (finalText !== lastAnswer) sequenceNumber += 1;
+            lastAnswer = finalText;
+            completedEmitted = true;
+            sawStream = false;
+            emit(deltaEvent(finalText, true));
+            console.debug(`[debatidor] turno completo emitido (${finalText.length} chars)`);
+          }, 450);
+        }
       }
     }
     if (status === 'generating') {
