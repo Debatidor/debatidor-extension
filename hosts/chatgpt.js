@@ -1,8 +1,8 @@
 /**
  * HostAdapter — ChatGPT (chatgpt.com)
- * SELECTOR_VERSION: 2026-08-chatgpt-prosemirror-1
+ * SELECTOR_VERSION: 2026-08-chatgpt-prosemirror-2
  *
- * Trampas del DOM actual (verificadas con snapshots reales del CEO, 2026-08-25):
+ * Trampas del DOM actual (verificadas con snapshots reales del CEO, 2026-08-25/27):
  *
  * 1. COMPOSER ProseMirror: el input real es `div#prompt-textarea.ProseMirror`
  *    (contenteditable). Hay un <textarea name="prompt-textarea"> PERO vive con
@@ -12,19 +12,19 @@
  *    (#composer-submit-button[data-testid="send-button"]) SOLO existe cuando
  *    hay texto en el composer. Jamás asumir que el botón visible es "send".
  * 3. STREAMING: durante la generación el slot muestra el botón de STOP y el
- *    scroll-root toma data-stream-active="true" (lo delatan las clases
- *    utilitarias group-data-stream-active/*). Señales concluyentes de
- *    "generando" incluso en la fase thinking de gpt-5 (turno assistant creado
- *    pero aún sin markdown).
- * 4. DONE: el footer de acciones del assistant
- *    (aria-label="Acciones de respuesta" con [data-testid="copy-turn-action-button"])
- *    solo se renderiza al terminar la respuesta — misma lección de Qwen:
- *    el footer ES la señal de cierre, no el botón copiar suelto.
+ *    scroll-root toma data-stream-active="true". En algunas variantes el
+ *    footer de acciones aparece ANTES de que termine el thinking, así que el
+ *    footer por sí solo NO es una señal suficiente de completion.
+ * 4. DONE: el footer de acciones del assistant es útil como señal de cierre,
+ *    pero solo después de comprobar que no hay stop activo y que el contenido
+ *    autoritativo lleva estable un pequeño settle. Los visores de código se
+ *    montan después del footer y pueden convertir un "Pensando" provisional
+ *    en un bloque JSON varios cientos de ms más tarde.
  * 5. PROHIBIDO anclarse a ids radix (_r_3s_) o clases hash (uFxlGa_*,
  *    wcDTda_*, e33vkq_*): son volátiles entre deploys.
  */
 (function attachChatGPTAdapter(global) {
-  const SELECTOR_VERSION = '2026-08-chatgpt-prosemirror-1';
+  const SELECTOR_VERSION = '2026-08-chatgpt-prosemirror-2';
 
   const COMPOSER = [
     'div#prompt-textarea.ProseMirror[contenteditable="true"]',
@@ -50,12 +50,16 @@
     '[aria-label*="Acciones de respuesta" i]',
     'button[aria-label*="Copiar respuesta" i]',
   ];
+  const CODE_MARKS = [
+    'pre code',
+    '#code-block-viewer code',
+    '.cm-content code',
+  ];
 
   let composerSeenAt = 0;
   let answerKey = '';
   let answerSnapshot = '';
   let answerChangedAt = 0;
-  let footerSeenAt = 0;
   const SETTLE_MS = 900;
   /** Watchdog: texto estable este tiempo sin stop visible = terminado. */
   const FORCE_WAIT_MS = 7000;
@@ -110,12 +114,9 @@
   }
 
   /**
-   * El footer de acciones del turno SOLO existe con la respuesta completa.
-   * ⚠️ SCOPING: hay que buscarlo en la SECCIÓN del turno
-   * (section[data-turn="assistant"]), NO en el div del mensaje:
-   * en el DOM real el footer es HERMANO de [data-message-author-role],
-   * no descendiente — scoping al mensaje = footer invisible = turno
-   * eternamente 'generating' (bug de producción 2026-08-25).
+   * El footer está fuera del div [data-message-author-role], como hermano
+   * dentro de section[data-turn="assistant"]. Buscarlo solo en el mensaje
+   * deja el turno eternamente generating.
    */
   function isDone(node) {
     const shell =
@@ -123,6 +124,11 @@
       node.parentElement ??
       node;
     return Boolean(shell && DONE_MARKS.some((sel) => shell.querySelector(sel)));
+  }
+
+  /** Hay un bloque de código realmente montado en el answer actual. */
+  function hasRenderedCode(node) {
+    return Boolean(node && CODE_MARKS.some((sel) => node.querySelector(sel)));
   }
 
   /** Inserta texto en el ProseMirror respetando su editor (execCommand). */
@@ -177,44 +183,48 @@
       const text = answerText(node);
       trackAnswer(text, node);
       const footerDone = node ? isDone(node) : false;
-      if (!footerDone) {
-        footerSeenAt = 0;
-      } else if (!footerSeenAt) {
-        footerSeenAt = Date.now();
-      }
-
-      // 1) SEÑAL PRIMARIA: footer del turno + settle por TIEMPO DEL FOOTER
-      //    (no por estabilidad del texto: el innerText oscila por el
-      //    re-render del visor de código). El footer GANA sobre cualquier
-      //    flag de stream pegado (data-stream-active queda true tras acabar).
-      if (footerDone && Date.now() - footerSeenAt >= SETTLE_MS) {
-        return 'waiting';
-      }
-      if (footerDone) return 'generating'; // settle breve tras el footer
-
-      // 2) Flags de generación (incluyen la fase thinking de gpt-5).
-      //    ⚠️ El stop puede quedarse pegado en un stall del host con el texto
-      //    ya congelado: mismo watchdog de texto congelado → fin real.
       const stopVisible = Boolean(first(STOP));
+      const streamActive = Boolean(document.querySelector(STREAM_ACTIVE));
+      const textStableFor = Date.now() - answerChangedAt;
+      const codeMounted = hasRenderedCode(node);
+
+      // 1) STOP SIEMPRE GANA. ChatGPT puede montar el footer de acciones
+      //    mientras sigue pensando; si el botón stop existe, el turno vive.
       if (stopVisible) {
-        if (text && Date.now() - answerChangedAt >= FORCE_WAIT_MS) return 'waiting';
+        if (text && textStableFor >= FORCE_WAIT_MS) return 'waiting';
         return 'generating';
       }
-      if (document.querySelector(STREAM_ACTIVE)) {
-        // data-stream-active puede quedar pegado en true tras terminar
-        // (bug de prod): si el texto lleva estable >7s sin stop, es mentira.
-        const textStableFor = Date.now() - answerChangedAt;
-        if (textStableFor < FORCE_WAIT_MS) return 'generating';
-        return 'waiting'; // watchdog: texto congelado + sin stop = fin real
+
+      // 2) Footer + contenido ESTABLE. No finalizar solo porque apareció el
+      //    footer: en dogfooding real el adapter emitió "Pensando" como final
+      //    y ~1 s después ChatGPT montó el JSON shell.run de 1.2 KB.
+      if (footerDone) {
+        if (!text) return 'thinking';
+        if (textStableFor < SETTLE_MS) return 'generating';
+
+        // Un bloque de código ya montado + estable es autoritativo para el
+        // tool-loop incluso si data-stream-active quedó pegado en true.
+        if (codeMounted) return 'waiting';
+
+        // Para respuestas normales, respetar streamActive mientras parezca
+        // real. Si quedó pegado, el watchdog permite cerrar tras 7 s.
+        if (streamActive && textStableFor < FORCE_WAIT_MS) return 'generating';
+        return 'waiting';
       }
 
-      // 3) Sin footer ni flags: con texto → generando; sin texto → thinking.
-      //    Watchdog idéntico para el caso "footer invisible" (turno que se
-      //    quedó generating eterno en prod con un bloque de código en pantalla).
+      // 3) Sin footer: data-stream-active puede quedarse pegado después de
+      //    terminar. Con texto estable >7 s y sin stop lo tratamos como stale.
+      if (streamActive) {
+        if (textStableFor < FORCE_WAIT_MS) return 'generating';
+        return 'waiting';
+      }
+
+      // 4) Sin señales fuertes: con nodo vacío seguimos thinking; con texto
+      //    esperamos estabilidad para cubrir render tardío del visor de código.
       if (node && !text) return 'thinking';
       if (text) {
-        if (Date.now() - answerChangedAt < FORCE_WAIT_MS) return 'generating';
-        return 'waiting'; // texto congelado 7s sin ninguna señal de vida = fin
+        if (textStableFor < FORCE_WAIT_MS) return 'generating';
+        return 'waiting';
       }
       return 'waiting';
     },
