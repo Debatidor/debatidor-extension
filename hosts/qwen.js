@@ -4,7 +4,7 @@
  * If none of these match, status = error. Never press Enter blindly.
  */
 (function attachQwenAdapter(global) {
-  const SELECTOR_VERSION = '2026-08-qwen-chatv2-think4';
+  const SELECTOR_VERSION = '2026-08-qwen-chatv2-think5';
   const COMPOSER = [
     'textarea.message-input-textarea',
     'textarea[class*="message-input"]',
@@ -47,6 +47,14 @@
     '.qwen-chat-message-assistant',
     '[class*="assistant"] [class*="markdown"]',
   ];
+  // Qwen Studio puede insertar una evaluación A/B server-side que exige una
+  // preferencia humana antes de continuar. No debemos leer ninguno de los dos
+  // candidatos como respuesta autoritativa ni hacer click automáticamente: el
+  // botón registra feedback del usuario. Mientras exista, el turno sigue vivo.
+  const PREFERENCE_GATE = [
+    '.qwen-chat-message-dual-message.qwen-chat-message-awaiting-response',
+    '.smrm .smrm-card__prefer-btn',
+  ];
   // Completion signal: the action footer (Regenerate et al) only renders
   // once the answer is final. The copy button exists from the start, so it
   // is NOT a completion signal in chat-v2.
@@ -66,6 +74,10 @@
       }
     }
     return null;
+  }
+
+  function preferenceGateActive() {
+    return Boolean(first(PREFERENCE_GATE));
   }
 
   /**
@@ -163,6 +175,13 @@
       }
       composerSeenAt = Date.now();
 
+      // Qwen A/B: el composer queda bloqueado hasta que el usuario elija. Lo
+      // tratamos como turno aún en progreso para que content.js NO finalice un
+      // candidato arbitrario y reanude automáticamente tras la elección.
+      if (preferenceGateActive()) {
+        return 'generating';
+      }
+
       // 1) Thinking explícito (tarjeta sin "-completed" o título activo).
       if (thinkingActive()) {
         return 'thinking';
@@ -193,6 +212,10 @@
       return 'waiting';
     },
     readAnswer() {
+      // Nunca serializar candidatos de una evaluación A/B: solo después de la
+      // elección humana existe una respuesta autoritativa que Debatidor puede
+      // ejecutar como tool-call.
+      if (preferenceGateActive()) return '';
       const node = answerNode();
       return answerText(node);
     },
@@ -205,6 +228,9 @@
       return !document.querySelector(ASSISTANT.join(','));
     },
     injectPrompt(text) {
+      if (preferenceGateActive()) {
+        return { ok: false, reason: 'preference_required' };
+      }
       const box = composer();
       if (!box) {
         return { ok: false, reason: 'composer_missing' };
