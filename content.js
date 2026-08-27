@@ -25,10 +25,13 @@
   let sequenceNumber = 0;
   let sawStream = false;
   let settleTimer = 0;
+  let lastProgressAt = 0;
   let turnId = null;
   // Identidad derivada del host (conn_dom_qwen, conn_dom_openai, …): nunca
-  // hardcodeada. El prompt dirigido a otro host se ignora.
-  let connectionId = host.connectionId ?? 'conn_dom';
+  // hardcodeada ni reemplazada por el connectionId genérico del socket MV3.
+  // El prompt dirigido a otro host se ignora.
+  const hostConnectionId = host.connectionId ?? 'conn_dom';
+  let connectionId = hostConnectionId;
   let debateId = null;
   /** @type {'unknown' | 'enabled' | 'disabled'} */
   let injectionEnabled = 'unknown';
@@ -69,7 +72,19 @@
 
   async function onWire(msg) {
     if (msg?.type === 'config') {
-      connectionId = msg.connectionId ?? connectionId;
+      // background.js registra UN socket genérico `conn_dom` para todas las
+      // pestañas. Ese id es transporte, NO identidad del participante. Solo
+      // aceptar una identidad específica si coincide con la declarada por el
+      // HostAdapter; así Qwen y ChatGPT pueden convivir en el mismo browser.
+      if (
+        typeof msg.connectionId === 'string' &&
+        msg.connectionId.startsWith('conn_dom_') &&
+        msg.connectionId === hostConnectionId
+      ) {
+        connectionId = msg.connectionId;
+      } else {
+        connectionId = hostConnectionId;
+      }
       debateId = msg.debateId ?? debateId;
       injectionEnabled = Boolean(msg.enabled) ? 'enabled' : 'disabled';
       return;
@@ -85,6 +100,7 @@
     sequenceNumber = 0;
     sawStream = false;
     completedEmitted = false;
+    lastProgressAt = 0;
     if (settleTimer) {
       clearTimeout(settleTimer);
       settleTimer = 0;
@@ -149,6 +165,7 @@
             lastAnswer = finalText;
             completedEmitted = true;
             sawStream = false;
+            lastProgressAt = 0;
             emit(deltaEvent(finalText, true));
             console.debug(`[debatidor] turno completo emitido (${finalText.length} chars)`);
           }, 450);
@@ -163,8 +180,31 @@
         // tipo "PensandoEntendido…Entendido…" en la consola y en la arena:
         // el DOM reordena/re-renderiza y el "sufijo" repetía todo.
         lastAnswer = current;
+        lastProgressAt = Date.now();
         sequenceNumber += 1;
         emit(deltaEvent(current, false));
+      }
+    }
+
+    // Última red de seguridad. Algunos hosts dejan pegada una señal de
+    // `generating` aunque la respuesta visible ya quedó inmóvil. Si hubo
+    // progreso textual y lleva 45s congelado, tratamos el snapshot actual
+    // como final autoritativo para no dejar el CLI esperando eternamente.
+    if (
+      sawStream &&
+      !completedEmitted &&
+      lastProgressAt &&
+      Date.now() - lastProgressAt > 45_000
+    ) {
+      const finalText = host.readAnswer() || lastAnswer;
+      if (finalText) {
+        if (finalText !== lastAnswer) sequenceNumber += 1;
+        lastAnswer = finalText;
+        completedEmitted = true;
+        sawStream = false;
+        lastProgressAt = 0;
+        emit(deltaEvent(finalText, true));
+        console.warn('[debatidor] ⚠️ completion FORZADO por watchdog (texto congelado 45s)');
       }
     }
   }
