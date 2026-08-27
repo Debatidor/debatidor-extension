@@ -36,6 +36,12 @@
   // que esta pestaña aceptó. Una conversación manual del usuario puede estar
   // generando en paralelo, pero jamás debe convertirse en turn.delta del bus.
   let captureArmed = false;
+  // Identidad del último answer existente JUSTO antes de inyectar el prompt.
+  // ChatGPT puede producir un tool-call tan rápido que entre dos ticks de 400ms
+  // nunca observemos thinking/generating. En ese caso el cambio de message-id
+  // es la prueba de que apareció un turno nuevo propiedad de esta captura.
+  let armedAnswerKey = '';
+  let sawOwnedAnswer = false;
   // Identidad derivada del host (conn_dom_qwen, conn_dom_openai, …): nunca
   // hardcodeada ni reemplazada por el connectionId genérico del socket MV3.
   // El prompt dirigido a otro host se ignora.
@@ -112,6 +118,26 @@
     if (port && !pageFrozen) send({ type: 'ping' }, { quiet: true });
   }, 20000);
 
+  function currentAnswerKey() {
+    if (typeof host.getAnswerKey === 'function') {
+      return String(host.getAnswerKey() ?? '');
+    }
+    // Compatibilidad inmediata con el DOM actual de ChatGPT sin obligar a que
+    // todos los HostAdapter expongan todavía getAnswerKey(). Qwen conserva el
+    // camino clásico sawStream hasta que adopte la misma primitiva.
+    if (host.hostId === 'chatgpt') {
+      const nodes = document.querySelectorAll('[data-message-author-role="assistant"]');
+      const node = nodes.length ? nodes[nodes.length - 1] : null;
+      return node?.getAttribute('data-message-id') ?? '';
+    }
+    return '';
+  }
+
+  function resetCaptureIdentity() {
+    armedAnswerKey = '';
+    sawOwnedAnswer = false;
+  }
+
   async function onWire(msg) {
     if (msg?.type === 'config') {
       // background.js registra UN socket genérico `conn_dom` para todas las
@@ -132,6 +158,7 @@
       if (injectionEnabled === 'disabled') {
         captureArmed = false;
         turnId = null;
+        resetCaptureIdentity();
       }
       // Un Port nuevo (SW revivido, reload o BFCache restore) debe reafirmar
       // el estado incluso si no hubo transición DOM desde el Port anterior.
@@ -157,6 +184,8 @@
     sawStream = false;
     completedEmitted = false;
     lastProgressAt = 0;
+    armedAnswerKey = currentAnswerKey();
+    sawOwnedAnswer = false;
     if (settleTimer) {
       clearTimeout(settleTimer);
       settleTimer = 0;
@@ -176,6 +205,7 @@
     if (!result?.ok) {
       captureArmed = false;
       turnId = null;
+      resetCaptureIdentity();
       publishStatus('error', true);
     }
   }
@@ -208,6 +238,10 @@
   function tick() {
     if (pageFrozen || injectionEnabled === 'disabled') return;
     const hostStatus = host.detectStatus();
+    const answerKey = currentAnswerKey();
+    if (captureArmed && answerKey && answerKey !== armedAnswerKey) {
+      sawOwnedAnswer = true;
+    }
     // Fuera de un turno propiedad de Debatidor, el estado público de la
     // conexión permanece disponible. Esto evita que una respuesta manual en
     // ChatGPT/Qwen aparezca en el CLI como una intervención de conn_dom_*.
@@ -221,13 +255,15 @@
       sawStream = true;
     }
 
-    const statusChanged = status !== lastStatus;
     publishStatus(status);
 
-    if (statusChanged && captureArmed && hostStatus === 'waiting' && sawStream && !completedEmitted) {
-      // chat-v2 a veces renderiza la respuesta de golpe (thinking → waiting
-      // sin una fase 'generating' observable con texto). Leer la respuesta
-      // final directo del host en vez de depender de los deltas intermedios.
+    const observedOwnedTurn = sawStream || sawOwnedAnswer;
+    if (captureArmed && hostStatus === 'waiting' && observedOwnedTurn && !completedEmitted) {
+      // ChatGPT puede completar tool-calls muy pequeños entre dos ticks de
+      // 400ms: waiting(old) → respuesta completa → waiting(new), sin que jamás
+      // observemos thinking/generating ni un cambio de status. Por eso el
+      // gate usa también la identidad del nuevo assistant turn.
+      //
       // ⚠️ UNA SOLA VEZ por turno: el DOM nuevo oscila waiting↔generating y
       // sin esta guarda el backend recibe DOS turn.completed → cada tool se
       // despacha dos veces → se queman los hops del guardrail (prod bug).
@@ -247,6 +283,8 @@
           if (injectionEnabled === 'disabled' || !captureArmed || pageFrozen) return;
           if (completedEmitted) return;
           if (host.detectStatus() !== 'waiting') return; // volvió a generar
+          const settledKey = currentAnswerKey();
+          if (!sawStream && armedAnswerKey && settledKey === armedAnswerKey) return;
           const finalText = host.readAnswer() || lastAnswer;
           if (!finalText) return;
           if (finalText !== lastAnswer) sequenceNumber += 1;
@@ -257,6 +295,7 @@
           emit(deltaEvent(finalText, true));
           captureArmed = false;
           turnId = null;
+          resetCaptureIdentity();
           // El completion cambia el estado público efectivo a waiting aunque
           // el HostAdapter oscile durante un render posterior.
           publishStatus('waiting', true);
@@ -299,6 +338,7 @@
         emit(deltaEvent(finalText, true));
         captureArmed = false;
         turnId = null;
+        resetCaptureIdentity();
         publishStatus('waiting', true);
         console.warn('[debatidor] ⚠️ completion FORZADO por watchdog (texto congelado 45s)');
       }
