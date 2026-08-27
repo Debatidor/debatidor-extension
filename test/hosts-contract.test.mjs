@@ -91,11 +91,33 @@ test('content preserva la identidad del HostAdapter frente al socket genérico c
   assert.match(source, /connectionId = hostConnectionId/);
 });
 
+test('content solo captura deltas de turnos inyectados por Debatidor', () => {
+  const source = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  assert.match(source, /let captureArmed = false/);
+  assert.match(source, /captureArmed = true;[\s\S]*host\.injectPrompt/);
+  assert.match(source, /if \(captureArmed && hostStatus === ['"]generating['"]\)/);
+  assert.match(source, /captureArmed = false;[\s\S]*turnId = null/);
+});
+
+test('content normaliza actividad manual del host a waiting fuera de un turno propio', () => {
+  const source = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  assert.match(
+    source,
+    /const status = captureArmed[\s\S]*hostStatus === ['"]error['"][\s\S]*['"]waiting['"]/,
+  );
+});
+
 test('content tiene watchdog de completion congelado', () => {
   const source = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
   assert.match(source, /lastProgressAt/);
   assert.match(source, /Date\.now\(\) - lastProgressAt > 45_000/);
   assert.match(source, /completion FORZADO por watchdog/);
+});
+
+test('qwen: footer Regenerate es completion autoritativo; el settle vive en content.js', () => {
+  const source = readFileSync(path.join(ROOT, 'hosts', 'qwen.js'), 'utf8');
+  assert.match(source, /if \(isDone\(node\)\) return ['"]waiting['"]/);
+  assert.doesNotMatch(source, /SETTLE_MS|answerChangedAt|trackAnswer/);
 });
 
 test('popup: HOSTS registra ChatGPT como disponible (nada de "Próximamente")', () => {

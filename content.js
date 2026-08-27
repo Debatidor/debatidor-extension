@@ -27,6 +27,10 @@
   let settleTimer = 0;
   let lastProgressAt = 0;
   let turnId = null;
+  // Solo capturamos contenido generado como consecuencia de un dom_prompt
+  // que esta pestaña aceptó. Una conversación manual del usuario puede estar
+  // generando en paralelo, pero jamás debe convertirse en turn.delta del bus.
+  let captureArmed = false;
   // Identidad derivada del host (conn_dom_qwen, conn_dom_openai, …): nunca
   // hardcodeada ni reemplazada por el connectionId genérico del socket MV3.
   // El prompt dirigido a otro host se ignora.
@@ -87,6 +91,10 @@
       }
       debateId = msg.debateId ?? debateId;
       injectionEnabled = Boolean(msg.enabled) ? 'enabled' : 'disabled';
+      if (injectionEnabled === 'disabled') {
+        captureArmed = false;
+        turnId = null;
+      }
       return;
     }
     if (msg?.type !== 'dom_prompt') return;
@@ -94,8 +102,13 @@
     // Prompt dirigido a otro host (multi-modelo): esta pestaña no interviene.
     if (msg.connectionId && msg.connectionId !== connectionId) return;
     const status = host.detectStatus();
-    if (status === 'thinking' || status === 'generating') return;
-    turnId = msg.turnId ?? turnId;
+    if (status === 'thinking' || status === 'generating') {
+      // El host está ocupado por una conversación ajena o un turno anterior:
+      // no armar captura ni mezclar ese contenido con Debatidor.
+      emit(statusEvent(status));
+      return;
+    }
+    turnId = msg.turnId ?? null;
     lastAnswer = '';
     sequenceNumber = 0;
     sawStream = false;
@@ -105,6 +118,9 @@
       clearTimeout(settleTimer);
       settleTimer = 0;
     }
+    // Armamos ANTES del click/Enter: MutationObserver corre asíncronamente y
+    // así no perdemos el primer cambio de DOM tras una inyección exitosa.
+    captureArmed = true;
     // La preamble de rol solo entra en un hilo fresco; en un hilo en curso
     // el contexto ya está y repetirla ensucia el chat visible.
     const preamble =
@@ -114,7 +130,11 @@
     const result = await Promise.resolve(
       host.injectPrompt(`${preamble}${msg.promptText ?? ''}`),
     );
-    if (!result?.ok) emit(statusEvent('error'));
+    if (!result?.ok) {
+      captureArmed = false;
+      turnId = null;
+      emit(statusEvent('error'));
+    }
   }
 
   // ------------------------------------------------------------ observer
@@ -130,12 +150,23 @@
 
   function tick() {
     if (injectionEnabled === 'disabled') return;
-    const status = host.detectStatus();
-    if (status === 'thinking' || status === 'generating') sawStream = true;
+    const hostStatus = host.detectStatus();
+    // Fuera de un turno propiedad de Debatidor, el estado público de la
+    // conexión permanece disponible. Esto evita que una respuesta manual en
+    // ChatGPT/Qwen aparezca en el CLI como una intervención de conn_dom_*.
+    const status = captureArmed
+      ? hostStatus
+      : hostStatus === 'error'
+        ? 'error'
+        : 'waiting';
+
+    if (captureArmed && (hostStatus === 'thinking' || hostStatus === 'generating')) {
+      sawStream = true;
+    }
     if (status !== lastStatus) {
       lastStatus = status;
       emit(statusEvent(status));
-      if (status === 'waiting' && sawStream && !completedEmitted) {
+      if (captureArmed && hostStatus === 'waiting' && sawStream && !completedEmitted) {
         // chat-v2 a veces renderiza la respuesta de golpe (thinking → waiting
         // sin una fase 'generating' observable con texto). Leer la respuesta
         // final directo del host en vez de depender de los deltas intermedios.
@@ -143,20 +174,19 @@
         // sin esta guarda el backend recibe DOS turn.completed → cada tool se
         // despacha dos veces → se queman los hops del guardrail (prod bug).
         //
-        // ⚠️ SETTLE de lectura: el visor de código (CodeMirror) sigue montando
-        // su DOM después de que el footer aparece — leer de inmediato puede
-        // capturar un JSON CORTADO (visto en prod: "high/manuscript/0).
-        // Se relee tras un pequeño asentamiento y solo si sigue en waiting.
+        // ⚠️ SETTLE de lectura: el visor de código sigue montando su DOM
+        // después de que el footer aparece — leer de inmediato puede capturar
+        // un JSON cortado. Se relee tras un pequeño asentamiento y solo si
+        // sigue en waiting.
         //
         // ⚠️ Si el settle falla porque el estado volvió a 'generating' (el DOM
         // oscila waiting↔generating a mitad de turno), NO se baja sawStream
         // aquí: hacerlo dejaba el turno sin completar para siempre cuando el
-        // segundo paso a waiting ya no veía stream (bug CLI colgado 2026-08-26).
-        // sawStream solo se baja cuando el completion REALMENTE se emitió.
+        // segundo paso a waiting ya no veía stream.
         if (!settleTimer) {
           settleTimer = window.setTimeout(() => {
             settleTimer = 0;
-            if (injectionEnabled === 'disabled') return;
+            if (injectionEnabled === 'disabled' || !captureArmed) return;
             if (completedEmitted) return;
             if (host.detectStatus() !== 'waiting') return; // volvió a generar
             const finalText = host.readAnswer() || lastAnswer;
@@ -167,12 +197,14 @@
             sawStream = false;
             lastProgressAt = 0;
             emit(deltaEvent(finalText, true));
+            captureArmed = false;
+            turnId = null;
             console.debug(`[debatidor] turno completo emitido (${finalText.length} chars)`);
           }, 450);
         }
       }
     }
-    if (status === 'generating') {
+    if (captureArmed && hostStatus === 'generating') {
       const current = host.readAnswer();
       if (current && current !== lastAnswer) {
         // Snapshot completo, SIEMPRE (isComplete=false solo indica que sigue
@@ -191,6 +223,7 @@
     // progreso textual y lleva 45s congelado, tratamos el snapshot actual
     // como final autoritativo para no dejar el CLI esperando eternamente.
     if (
+      captureArmed &&
       sawStream &&
       !completedEmitted &&
       lastProgressAt &&
@@ -204,6 +237,8 @@
         sawStream = false;
         lastProgressAt = 0;
         emit(deltaEvent(finalText, true));
+        captureArmed = false;
+        turnId = null;
         console.warn('[debatidor] ⚠️ completion FORZADO por watchdog (texto congelado 45s)');
       }
     }

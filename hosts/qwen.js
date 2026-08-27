@@ -4,7 +4,7 @@
  * If none of these match, status = error. Never press Enter blindly.
  */
 (function attachQwenAdapter(global) {
-  const SELECTOR_VERSION = '2026-08-qwen-chatv2-think3';
+  const SELECTOR_VERSION = '2026-08-qwen-chatv2-think4';
   const COMPOSER = [
     'textarea.message-input-textarea',
     'textarea[class*="message-input"]',
@@ -57,16 +57,6 @@
   const ASSISTANT = ['.qwen-chat-message-assistant', '[class*="message-assistant"]'];
 
   let composerSeenAt = 0;
-  let answerSnapshot = '';
-  let answerChangedAt = 0;
-  const SETTLE_MS = 900;
-
-  function trackAnswer(text) {
-    if (text !== answerSnapshot) {
-      answerSnapshot = text;
-      answerChangedAt = Date.now();
-    }
-  }
 
   function first(selectors) {
     for (const selector of selectors) {
@@ -189,16 +179,16 @@
         return 'generating';
       }
 
-      // 3) Respuesta en curso: texto visible sin footer de acciones.
+      // 3) La barra de acciones final es la señal autoritativa de completion.
+      // El DOM adjunto de Qwen 2026-08 mostró que Monaco puede seguir
+      // re-renderizando internamente el bloque JSON aun con Regenerate visible;
+      // usar cambios de innerText como settle mantenía el estado en generating
+      // indefinidamente. El settle de lectura final vive en content.js.
       const node = answerNode();
       const text = answerText(node);
-      trackAnswer(text);
       if (text) {
-        const done = isDone(node);
-        if (!done) return 'generating';
-        // Settle: el footer aparece un instante después del último token.
-        if (Date.now() - answerChangedAt < SETTLE_MS) return 'generating';
-        return 'waiting';
+        if (isDone(node)) return 'waiting';
+        return 'generating';
       }
       return 'waiting';
     },
