@@ -76,6 +76,28 @@ test('los dos hosts declaran connectionIds DISTINTOS (multi-modelo)', () => {
   assert.notEqual(qwen.connectionId, chatgpt.connectionId);
 });
 
+test('background conserva connectionId en dom_prompt para routing por pestaña', () => {
+  const source = readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  assert.match(
+    source,
+    /type:\s*['"]dom_prompt['"][\s\S]*connectionId:\s*parsed\.data\?\.connectionId/,
+  );
+});
+
+test('content preserva la identidad del HostAdapter frente al socket genérico conn_dom', () => {
+  const source = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  assert.match(source, /const hostConnectionId = host\.connectionId \?\? ['"]conn_dom['"]/);
+  assert.match(source, /msg\.connectionId\.startsWith\(['"]conn_dom_['"]\)/);
+  assert.match(source, /connectionId = hostConnectionId/);
+});
+
+test('content tiene watchdog de completion congelado', () => {
+  const source = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  assert.match(source, /lastProgressAt/);
+  assert.match(source, /Date\.now\(\) - lastProgressAt > 45_000/);
+  assert.match(source, /completion FORZADO por watchdog/);
+});
+
 test('popup: HOSTS registra ChatGPT como disponible (nada de "Próximamente")', () => {
   const source = readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   const hostsBlock = source.split('const HOSTS =')[1]?.split('};')[0] ?? '';
