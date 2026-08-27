@@ -114,6 +114,23 @@ test('content tiene watchdog de completion congelado', () => {
   assert.match(source, /completion FORZADO por watchdog/);
 });
 
+test('content re-sincroniza estado después de BFCache y no consume estados que no pudo enviar', () => {
+  const source = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  assert.match(source, /window\.addEventListener\(['"]pagehide['"]/);
+  assert.match(source, /window\.addEventListener\(['"]pageshow['"]/);
+  assert.match(source, /if \(!event\.persisted\) return/);
+  assert.match(source, /lastStatus = null;[\s\S]*lastStatusSentAt = 0;[\s\S]*connectPort\(\)/);
+  assert.match(source, /if \(!emit\(statusEvent\(status\)\)\) return false/);
+  assert.match(source, /const STATUS_HEARTBEAT_MS = 10000/);
+});
+
+test('Ports por pestaña son generacionales: un disconnect viejo no borra el Port nuevo', () => {
+  const source = readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  assert.match(source, /const previous = tabs\.get\(tabId\)/);
+  assert.match(source, /if \(tabs\.get\(tabId\) === port\) tabs\.delete\(tabId\)/);
+  assert.match(source, /void chrome\.runtime\.lastError/);
+});
+
 test('qwen: footer Regenerate es completion autoritativo; el settle vive en content.js', () => {
   const source = readFileSync(path.join(ROOT, 'hosts', 'qwen.js'), 'utf8');
   assert.match(source, /if \(isDone\(node\)\) return ['"]waiting['"]/);

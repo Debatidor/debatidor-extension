@@ -14,12 +14,17 @@
   const PORT_NAME = 'debatidor-tab';
   const RETRY_MIN_MS = 500;
   const RETRY_MAX_MS = 8000;
+  // Reafirmar el estado aunque no haya transición evita que el backend se
+  // quede con un `generating` viejo si Chrome cerró el Port por BFCache.
+  const STATUS_HEARTBEAT_MS = 10000;
 
   let port = null;
   let connectTimer = 0;
   let retryAttempts = 0;
+  let pageFrozen = false;
 
   let lastStatus = null;
+  let lastStatusSentAt = 0;
   let lastAnswer = '';
   let completedEmitted = false;
   let sequenceNumber = 0;
@@ -44,34 +49,67 @@
 
   function connectPort() {
     clearTimeout(connectTimer);
+    connectTimer = 0;
+    if (pageFrozen) return;
+
+    let nextPort;
     try {
-      port = chrome.runtime.connect({ name: PORT_NAME });
+      nextPort = chrome.runtime.connect({ name: PORT_NAME });
     } catch {
       scheduleReconnect();
       return;
     }
+
+    port = nextPort;
     retryAttempts = 0;
-    port.onMessage.addListener((msg) => {
+    nextPort.onMessage.addListener((msg) => {
       void onWire(msg);
     });
-    port.onDisconnect.addListener(() => {
-      port = null;
-      // SW suspendido o recargado: volver a levantar el puerto. Si el propio
-      // contexto de extensión desapareció (reload/upgrade), el reintento
-      // falla y queda backoff-eando hasta que la pestaña se recargue.
-      scheduleReconnect();
+    nextPort.onDisconnect.addListener(() => {
+      // Leer lastError evita el ruido "Unchecked runtime.lastError" que Chrome
+      // produce al mover una página con Port abierto al back/forward cache.
+      void chrome.runtime.lastError;
+      if (port === nextPort) port = null;
+      if (!pageFrozen) scheduleReconnect();
     });
   }
 
   function scheduleReconnect() {
-    if (connectTimer) return;
+    if (pageFrozen || connectTimer) return;
     const delay = Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** retryAttempts++);
     connectTimer = setTimeout(connectPort, delay);
   }
 
+  // Chrome cierra los extension Ports cuando una página entra al BFCache.
+  // El contexto JS puede sobrevivir, por lo que al volver no podemos confiar
+  // en timers/onDisconnect previos: reconectamos y forzamos re-publicación del
+  // estado actual aunque localmente `lastStatus` siga diciendo waiting.
+  window.addEventListener('pagehide', (event) => {
+    if (!event.persisted) return;
+    pageFrozen = true;
+    clearTimeout(connectTimer);
+    connectTimer = 0;
+    const current = port;
+    port = null;
+    try {
+      current?.disconnect();
+    } catch {
+      /* Chrome puede haberlo cerrado primero */
+    }
+  });
+
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted) return;
+    pageFrozen = false;
+    retryAttempts = 0;
+    lastStatus = null;
+    lastStatusSentAt = 0;
+    connectPort();
+  });
+
   // Keep-alive barato: cada mensaje recibido resetea el idle timer del SW.
   setInterval(() => {
-    if (port) send({ type: 'ping' }, { quiet: true });
+    if (port && !pageFrozen) send({ type: 'ping' }, { quiet: true });
   }, 20000);
 
   async function onWire(msg) {
@@ -95,6 +133,11 @@
         captureArmed = false;
         turnId = null;
       }
+      // Un Port nuevo (SW revivido, reload o BFCache restore) debe reafirmar
+      // el estado incluso si no hubo transición DOM desde el Port anterior.
+      lastStatus = null;
+      lastStatusSentAt = 0;
+      queueMicrotask(tick);
       return;
     }
     if (msg?.type !== 'dom_prompt') return;
@@ -105,7 +148,7 @@
     if (status === 'thinking' || status === 'generating') {
       // El host está ocupado por una conversación ajena o un turno anterior:
       // no armar captura ni mezclar ese contenido con Debatidor.
-      emit(statusEvent(status));
+      publishStatus(status, true);
       return;
     }
     turnId = msg.turnId ?? null;
@@ -133,7 +176,7 @@
     if (!result?.ok) {
       captureArmed = false;
       turnId = null;
-      emit(statusEvent('error'));
+      publishStatus('error', true);
     }
   }
 
@@ -148,8 +191,22 @@
   setInterval(tick, 400);
   tick();
 
+  function publishStatus(status, force = false) {
+    const now = Date.now();
+    if (!force && status === lastStatus && now - lastStatusSentAt < STATUS_HEARTBEAT_MS) {
+      return false;
+    }
+    // IMPORTANTE: no avanzar lastStatus si el Port estaba muerto. De lo
+    // contrario la transición se "consume" localmente y nunca se reintenta,
+    // dejando al backend pegado en el estado anterior para siempre.
+    if (!emit(statusEvent(status))) return false;
+    lastStatus = status;
+    lastStatusSentAt = now;
+    return true;
+  }
+
   function tick() {
-    if (injectionEnabled === 'disabled') return;
+    if (pageFrozen || injectionEnabled === 'disabled') return;
     const hostStatus = host.detectStatus();
     // Fuera de un turno propiedad de Debatidor, el estado público de la
     // conexión permanece disponible. Esto evita que una respuesta manual en
@@ -163,45 +220,48 @@
     if (captureArmed && (hostStatus === 'thinking' || hostStatus === 'generating')) {
       sawStream = true;
     }
-    if (status !== lastStatus) {
-      lastStatus = status;
-      emit(statusEvent(status));
-      if (captureArmed && hostStatus === 'waiting' && sawStream && !completedEmitted) {
-        // chat-v2 a veces renderiza la respuesta de golpe (thinking → waiting
-        // sin una fase 'generating' observable con texto). Leer la respuesta
-        // final directo del host en vez de depender de los deltas intermedios.
-        // ⚠️ UNA SOLA VEZ por turno: el DOM nuevo oscila waiting↔generating y
-        // sin esta guarda el backend recibe DOS turn.completed → cada tool se
-        // despacha dos veces → se queman los hops del guardrail (prod bug).
-        //
-        // ⚠️ SETTLE de lectura: el visor de código sigue montando su DOM
-        // después de que el footer aparece — leer de inmediato puede capturar
-        // un JSON cortado. Se relee tras un pequeño asentamiento y solo si
-        // sigue en waiting.
-        //
-        // ⚠️ Si el settle falla porque el estado volvió a 'generating' (el DOM
-        // oscila waiting↔generating a mitad de turno), NO se baja sawStream
-        // aquí: hacerlo dejaba el turno sin completar para siempre cuando el
-        // segundo paso a waiting ya no veía stream.
-        if (!settleTimer) {
-          settleTimer = window.setTimeout(() => {
-            settleTimer = 0;
-            if (injectionEnabled === 'disabled' || !captureArmed) return;
-            if (completedEmitted) return;
-            if (host.detectStatus() !== 'waiting') return; // volvió a generar
-            const finalText = host.readAnswer() || lastAnswer;
-            if (!finalText) return;
-            if (finalText !== lastAnswer) sequenceNumber += 1;
-            lastAnswer = finalText;
-            completedEmitted = true;
-            sawStream = false;
-            lastProgressAt = 0;
-            emit(deltaEvent(finalText, true));
-            captureArmed = false;
-            turnId = null;
-            console.debug(`[debatidor] turno completo emitido (${finalText.length} chars)`);
-          }, 450);
-        }
+
+    const statusChanged = status !== lastStatus;
+    publishStatus(status);
+
+    if (statusChanged && captureArmed && hostStatus === 'waiting' && sawStream && !completedEmitted) {
+      // chat-v2 a veces renderiza la respuesta de golpe (thinking → waiting
+      // sin una fase 'generating' observable con texto). Leer la respuesta
+      // final directo del host en vez de depender de los deltas intermedios.
+      // ⚠️ UNA SOLA VEZ por turno: el DOM nuevo oscila waiting↔generating y
+      // sin esta guarda el backend recibe DOS turn.completed → cada tool se
+      // despacha dos veces → se queman los hops del guardrail (prod bug).
+      //
+      // ⚠️ SETTLE de lectura: el visor de código sigue montando su DOM
+      // después de que el footer aparece — leer de inmediato puede capturar
+      // un JSON cortado. Se relee tras un pequeño asentamiento y solo si
+      // sigue en waiting.
+      //
+      // ⚠️ Si el settle falla porque el estado volvió a 'generating' (el DOM
+      // oscila waiting↔generating a mitad de turno), NO se baja sawStream
+      // aquí: hacerlo dejaba el turno sin completar para siempre cuando el
+      // segundo paso a waiting ya no veía stream.
+      if (!settleTimer) {
+        settleTimer = window.setTimeout(() => {
+          settleTimer = 0;
+          if (injectionEnabled === 'disabled' || !captureArmed || pageFrozen) return;
+          if (completedEmitted) return;
+          if (host.detectStatus() !== 'waiting') return; // volvió a generar
+          const finalText = host.readAnswer() || lastAnswer;
+          if (!finalText) return;
+          if (finalText !== lastAnswer) sequenceNumber += 1;
+          lastAnswer = finalText;
+          completedEmitted = true;
+          sawStream = false;
+          lastProgressAt = 0;
+          emit(deltaEvent(finalText, true));
+          captureArmed = false;
+          turnId = null;
+          // El completion cambia el estado público efectivo a waiting aunque
+          // el HostAdapter oscile durante un render posterior.
+          publishStatus('waiting', true);
+          console.debug(`[debatidor] turno completo emitido (${finalText.length} chars)`);
+        }, 450);
       }
     }
     if (captureArmed && hostStatus === 'generating') {
@@ -239,6 +299,7 @@
         emit(deltaEvent(finalText, true));
         captureArmed = false;
         turnId = null;
+        publishStatus('waiting', true);
         console.warn('[debatidor] ⚠️ completion FORZADO por watchdog (texto congelado 45s)');
       }
     }
@@ -247,8 +308,8 @@
   // -------------------------------------------------------------- output
 
   function emit(payload) {
-    if (!ALLOWED.has(payload.event)) return;
-    send({ type: 'wire', payload });
+    if (!ALLOWED.has(payload.event)) return false;
+    return send({ type: 'wire', payload });
   }
 
   /**
@@ -256,6 +317,7 @@
    * @returns {boolean} true si el mensaje salió.
    */
   function send(msg, { quiet = false } = {}) {
+    if (pageFrozen) return false;
     if (port) {
       try {
         port.postMessage(msg);

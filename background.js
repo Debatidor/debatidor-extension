@@ -32,6 +32,17 @@ chrome.runtime.onConnect.addListener((port) => {
   const tabId = port.sender?.tab?.id;
   if (tabId == null) return;
 
+  // BFCache y algunos restores pueden crear un Port nuevo antes de que llegue
+  // el onDisconnect del anterior. Nunca dejar que ese callback viejo borre el
+  // Port recién conectado de la misma pestaña.
+  const previous = tabs.get(tabId);
+  if (previous && previous !== port) {
+    try {
+      previous.disconnect();
+    } catch {
+      /* ya estaba cerrado */
+    }
+  }
   tabs.set(tabId, port);
   pushConfig(tabId, port);
 
@@ -43,7 +54,12 @@ chrome.runtime.onConnect.addListener((port) => {
     void relay(tabId, payload);
   });
 
-  port.onDisconnect.addListener(() => tabs.delete(tabId));
+  port.onDisconnect.addListener(() => {
+    // Chrome expone aquí runtime.lastError cuando el Port se cierra porque la
+    // página entra al back/forward cache. Leerlo evita "Unchecked ...".
+    void chrome.runtime.lastError;
+    if (tabs.get(tabId) === port) tabs.delete(tabId);
+  });
   void ensureSocket();
 });
 
@@ -149,6 +165,8 @@ async function ensureSocket() {
   socket.addEventListener('open', () => {
     socketAttempts = 0;
     startHeartbeat();
+    // Reenviar config fuerza a cada content script a reafirmar su estado
+    // actual. Así un websocket nuevo nunca hereda un `generating` huérfano.
     for (const [tabId, port] of tabs) pushConfig(tabId, port);
   });
 
@@ -214,7 +232,7 @@ function reconnect() {
 
 function broadcast(msg) {
   for (const [tabId, port] of tabs) {
-    if (!safePost(port, msg)) tabs.delete(tabId);
+    if (!safePost(port, msg) && tabs.get(tabId) === port) tabs.delete(tabId);
   }
 }
 
