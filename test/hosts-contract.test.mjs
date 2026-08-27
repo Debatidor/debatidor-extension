@@ -120,6 +120,15 @@ test('qwen: footer Regenerate es completion autoritativo; el settle vive en cont
   assert.doesNotMatch(source, /SETTLE_MS|answerChangedAt|trackAnswer/);
 });
 
+test('qwen: una evaluación A/B bloquea el turno sin serializar ni auto-seleccionar candidatos', () => {
+  const source = readFileSync(path.join(ROOT, 'hosts', 'qwen.js'), 'utf8');
+  assert.match(source, /qwen-chat-message-dual-message\.qwen-chat-message-awaiting-response/);
+  assert.match(source, /smrm \.smrm-card__prefer-btn/);
+  assert.match(source, /if \(preferenceGateActive\(\)\) \{\s*return ['"]generating['"]/);
+  assert.match(source, /if \(preferenceGateActive\(\)\) return ['"]['"]/);
+  assert.doesNotMatch(source, /prefer-btn['"]?\)\.click|smrm-card__prefer-btn[^\n]*click/);
+});
+
 test('popup: HOSTS registra ChatGPT como disponible (nada de "Próximamente")', () => {
   const source = readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   const hostsBlock = source.split('const HOSTS =')[1]?.split('};')[0] ?? '';
