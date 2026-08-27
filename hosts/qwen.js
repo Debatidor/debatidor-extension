@@ -4,7 +4,7 @@
  * If none of these match, status = error. Never press Enter blindly.
  */
 (function attachQwenAdapter(global) {
-  const SELECTOR_VERSION = '2026-08-qwen-chatv2-think5';
+  const SELECTOR_VERSION = '2026-08-qwen-chatv2-think6';
   const COMPOSER = [
     'textarea.message-input-textarea',
     'textarea[class*="message-input"]',
@@ -81,6 +81,21 @@
   }
 
   /**
+   * Qwen/Monaco serializa espacios visuales dentro de bloques de código como
+   * NBSP/figure-space/narrow-NBSP. Es una decisión de PRESENTACIÓN del DOM,
+   * no semántica del texto del modelo. Si dejamos esos codepoints cruzar el
+   * bridge, un `git status` visible termina llegando al CLI como
+   * `git\u00a0status` y Git interpreta " status" como otro subcomando.
+   *
+   * Normalizamos únicamente al LEER la respuesta renderizada de Qwen. No
+   * tocamos prompts ni comandos en backend/agent: el transporte debe recuperar
+   * el texto semántico original antes de serializarlo.
+   */
+  function normalizeRenderedText(text) {
+    return String(text ?? '').replace(/[\u00a0\u2007\u202f]/g, ' ');
+  }
+
+  /**
    * chat-v2 trampa doble: la tarjeta ACTIVA usa clases qwen-chat-status-card*
    * (sin substring "thinking") y la COMPLETADA usa qwen-chat-thinking-*-
    * completed. Detectar activo = presencia de la tarjeta activa o un título
@@ -122,9 +137,9 @@
       )) {
         el.remove();
       }
-      return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+      return normalizeRenderedText(clone.textContent ?? '').replace(/\s+/g, ' ').trim();
     }
-    return (node.innerText ?? '').trim();
+    return normalizeRenderedText(node.innerText ?? '').trim();
   }
 
   function isDone(node) {

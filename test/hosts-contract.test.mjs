@@ -120,6 +120,13 @@ test('qwen: footer Regenerate es completion autoritativo; el settle vive en cont
   assert.doesNotMatch(source, /SETTLE_MS|answerChangedAt|trackAnswer/);
 });
 
+test('qwen: normaliza NBSP/figure/narrow spaces introducidos por Monaco antes del bridge', () => {
+  const source = readFileSync(path.join(ROOT, 'hosts', 'qwen.js'), 'utf8');
+  assert.match(source, /function normalizeRenderedText\(text\)/);
+  assert.match(source, /\\u00a0\\u2007\\u202f/);
+  assert.match(source, /return normalizeRenderedText\(node\.innerText \?\? ['"]['"]\)\.trim\(\)/);
+});
+
 test('qwen: una evaluación A/B bloquea el turno sin serializar ni auto-seleccionar candidatos', () => {
   const source = readFileSync(path.join(ROOT, 'hosts', 'qwen.js'), 'utf8');
   assert.match(source, /qwen-chat-message-dual-message\.qwen-chat-message-awaiting-response/);
