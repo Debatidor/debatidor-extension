@@ -59,6 +59,8 @@ function pushConfig(tabId, port) {
   Promise.all([loadConfig(), isEnabled(tabId)]).then(([config, enabled]) => {
     safePost(port, {
       type: 'config',
+      // `connectionId` aquí identifica el socket MV3, no el host concreto.
+      // content.js preserva la identidad declarada por su HostAdapter.
       connectionId: config.connectionId,
       debateId: config.debateId,
       enabled,
@@ -159,8 +161,11 @@ async function ensureSocket() {
       return;
     }
     if (parsed.event === 'extension.dom_prompt') {
+      // CRÍTICO multi-host: conservar connectionId para que content.js pueda
+      // ignorar prompts destinados a otra pestaña (Qwen vs ChatGPT, etc.).
       broadcast({
         type: 'dom_prompt',
+        connectionId: parsed.data?.connectionId,
         turnId: parsed.data?.turnId,
         systemPreamble: parsed.data?.systemPreamble,
         promptText: parsed.data?.promptText,
