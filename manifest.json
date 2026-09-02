@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Debatidor",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page. Does not access the disk.",
   "permissions": ["storage", "tabs"],
   "icons": {
@@ -41,6 +41,11 @@
     {
       "matches": ["https://z.ai/*", "https://*.z.ai/*"],
       "js": ["hosts/zai.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["hosts/claude.js", "content.js"],
       "run_at": "document_idle"
     }
   ]
