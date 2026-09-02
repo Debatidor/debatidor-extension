@@ -27,13 +27,18 @@ The content script only emits `extension.dom_status` and `extension.dom_delta`. 
 | `chat.qwen.ai` | `hosts/qwen.js` | Supported |
 | `chatgpt.com` | `hosts/chatgpt.js` | Supported |
 | `z.ai` / `chat.z.ai` | `hosts/zai.js` | Supported |
-| Claude, Gemini | — | Coming soon; no page access requested yet |
+| `claude.ai` | `hosts/claude.js` | Supported |
+| Gemini | — | Coming soon; no page access requested yet |
 
 Each adapter owns its selectors, completion signals and participant identity. If a provider changes its DOM, the adapter reports `error` instead of blindly sending keys into the page.
 
 ### Z.ai / GLM selector contract
 
-The first Z.ai adapter is based on a real DOM capture from 2026-09-01. It intentionally anchors to semantic/stable attributes (`#chat-input`, `#send-message-button`, `aria-label="Stop"`, `.chat-assistant`, `#response-content-container`, `Regenerate`) and ignores volatile Svelte hashes and `bits-*` ids.
+The Z.ai adapter is based on real DOM captures from 2026-09-01/02. It intentionally anchors to semantic/stable attributes (`#chat-input`, `#send-message-button`, `aria-label="Stop"`, `.chat-assistant`, `#response-content-container`, `Regenerate`) and ignores volatile Svelte hashes and `bits-*` ids.
+
+### Claude selector contract
+
+The first Claude adapter is based on a real `claude.ai` capture from 2026-09-02. It anchors to `data-testid="chat-input"`, `data-testid="chat-input-send"`, transcript rows with `data-perf-row`, `data-perf-row-streaming` / `data-is-streaming`, `data-cds="Prose"`, and the final assistant action bar. It intentionally ignores React-generated `_r_*` ids, Base UI ids and utility-class hashes.
 
 ## Popup experience
 
