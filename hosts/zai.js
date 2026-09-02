@@ -1,6 +1,6 @@
 /**
  * HostAdapter — Z.ai / GLM (z.ai, chat.z.ai)
- * SELECTOR_VERSION: 2026-09-zai-svelte-1
+ * SELECTOR_VERSION: 2026-09-zai-dom-1
  *
  * Selectores derivados de snapshots reales del DOM de z.ai (2026-09-01):
  * - composer: textarea#chat-input
@@ -12,7 +12,7 @@
  * No se usan ids `bits-*` ni clases `svelte-*`: son artefactos volátiles.
  */
 (function attachZaiAdapter(global) {
-  const SELECTOR_VERSION = '2026-09-zai-svelte-1';
+  const SELECTOR_VERSION = '2026-09-zai-dom-1';
   const COMPOSER = [
     'textarea#chat-input',
     'textarea[placeholder="How can I help you today?"]',
