@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Debatidor</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="popup-hosts.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -56,7 +57,7 @@
           <div class="hero-copy">
             <span class="eyebrow"><span class="eyebrow-dot"></span>Listo para debatir</span>
             <h1>Abre un agente compatible</h1>
-            <p>Debatidor necesita una pestaña de un chat compatible (Qwen, ChatGPT…) para recibir turnos y devolver respuestas.</p>
+            <p>Elige cualquier agente web disponible. La lista y sus accesos se actualizan desde el catálogo de hosts compatibles.</p>
             <div id="open-host-buttons" class="open-host-buttons"></div>
           </div>
           <img class="mascot mascot--idle" src="assets/mascot-idle.png" alt="Astronauta de Debatidor esperando" />
@@ -67,7 +68,7 @@
               <span class="section-kicker">Integraciones</span>
               <h2 id="compatibility-title">Agentes disponibles</h2>
             </div>
-            <span id="host-count" class="count-badge">1 activo</span>
+            <span id="host-count" class="count-badge">0 activos</span>
           </div>
           <div id="host-list" class="host-list"></div>
         </section>
@@ -77,7 +78,7 @@
         <section class="hero-card hero-card--active">
           <div class="hero-copy">
             <span class="eyebrow"><span class="eyebrow-dot"></span>Agente detectado</span>
-            <h1><span id="agent-name">Qwen</span> está a bordo</h1>
+            <h1><span id="agent-name">Agente</span> está a bordo</h1>
             <p id="agent-url" class="agent-url"></p>
           </div>
           <img class="mascot mascot--active" src="assets/mascot-active.png" alt="Astronauta de Debatidor conversando" />

@@ -48,9 +48,9 @@ function buildGuard(initialText = '') {
   };
 }
 
-test('0.4.1 carga el guard antes de content.js', () => {
-  assert.equal(manifest.version, '0.4.1');
-  assert.equal(pkg.version, '0.4.1');
+test('manifest y package comparten versión y cargan el guard antes de content.js', () => {
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(pkg.version, manifest.version);
   const chatgpt = manifest.content_scripts.find((item) => item.matches.includes('https://chatgpt.com/*'));
   assert.deepEqual(chatgpt.js, ['hosts/chatgpt.js', 'hosts/chatgpt-stability.js', 'content.js']);
 });

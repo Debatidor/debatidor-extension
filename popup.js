@@ -1,8 +1,26 @@
 // Debatidor popup: a compact control surface for the active browser agent.
 
+// Catálogo de hosts vivos. La vista, el contador y TODOS los botones "Abrir"
+// se derivan de esta única estructura: agregar un provider no implica tocar HTML.
 const HOSTS = {
-  'chat.qwen.ai': { name: 'Qwen', url: 'https://chat.qwen.ai/', available: true },
-  'chatgpt.com': { name: 'ChatGPT', url: 'https://chatgpt.com/', available: true },
+  'chat.qwen.ai': {
+    name: 'Qwen',
+    url: 'https://chat.qwen.ai/',
+    domains: ['chat.qwen.ai'],
+    available: true,
+  },
+  'chatgpt.com': {
+    name: 'ChatGPT',
+    url: 'https://chatgpt.com/',
+    domains: ['chatgpt.com', 'chat.openai.com'],
+    available: true,
+  },
+  'chat.z.ai': {
+    name: 'Z.ai (GLM)',
+    url: 'https://chat.z.ai/',
+    domains: ['chat.z.ai', 'z.ai'],
+    available: true,
+  },
 };
 
 const ROADMAP_HOSTS = [
@@ -39,10 +57,19 @@ async function init() {
   window.setInterval(() => void refresh(), 1800);
 }
 
+function liveHosts() {
+  return Object.values(HOSTS).filter((host) => host.available);
+}
+
 function hostFor(url) {
   if (!url) return null;
   try {
-    return HOSTS[new URL(url).hostname] ?? null;
+    const hostname = new URL(url).hostname.toLowerCase();
+    return (
+      liveHosts().find((host) =>
+        (host.domains ?? []).some((domain) => domain.toLowerCase() === hostname),
+      ) ?? null
+    );
   } catch {
     return null;
   }
@@ -122,7 +149,7 @@ function renderHostList() {
   const hostList = $('host-list');
   hostList.replaceChildren();
 
-  const liveCount = Object.values(HOSTS).filter((h) => h.available).length;
+  const liveCount = liveHosts().length;
   const countBadge = $('host-count');
   if (countBadge) countBadge.textContent = `${liveCount} activos`;
 
@@ -141,17 +168,23 @@ function renderHostList() {
   }
 }
 
-/** Botones "Abrir <host>" para cada host vivo (vista sin pestaña compatible). */
+/**
+ * Genera una acción por cada host vivo. No existen botones por-provider en
+ * popup.html: al sumar un host al catálogo aparece aquí automáticamente.
+ */
 function renderOpenHostButtons() {
   const wrap = $('open-host-buttons');
   if (!wrap) return;
   wrap.replaceChildren();
 
-  for (const host of Object.values(HOSTS).filter((h) => h.available)) {
+  for (const host of liveHosts()) {
     const button = document.createElement('button');
-    button.className = 'button button--primary';
+    button.className = 'button button--primary open-host-button';
     button.type = 'button';
-    button.textContent = `Abrir ${host.name}`;
+    button.title = `Abrir ${host.name}`;
+
+    const label = document.createElement('span');
+    label.textContent = host.name;
 
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     icon.setAttribute('viewBox', '0 0 20 20');
@@ -159,7 +192,7 @@ function renderOpenHostButtons() {
     const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     arrow.setAttribute('d', 'M6 14 14 6m-6 0h6v6');
     icon.appendChild(arrow);
-    button.appendChild(icon);
+    button.append(label, icon);
 
     button.addEventListener('click', () => {
       chrome.tabs.create({ url: host.url });

@@ -1,6 +1,6 @@
 # Debatidor Extension
 
-Browser extension that connects an open [Qwen](https://chat.qwen.ai) tab to a Debatidor room. It watches whether the model is thinking, streaming, or idle, and talks to the Debatidor backend over WebSocket.
+Browser extension that connects supported web-chat tabs to a Debatidor room. It watches whether the model is thinking, streaming, or idle, and talks to the Debatidor backend over WebSocket.
 
 The extension does not access the local filesystem. File changes are handled by [`debatidor-agent`](https://github.com/Debatidor/debatidor-agent).
 
@@ -9,7 +9,7 @@ The extension does not access the local filesystem. File changes are handled by 
 1. Create an API key in the Debatidor Hub under **API Keys**.
 2. Open Chrome → `chrome://extensions` → enable **Developer mode** → choose **Load unpacked** → select this folder.
 3. Open the popup, paste the `deb_live_…` key, and save. Production (`wss://api.debatidor.com/extension`) is selected by default; choose **Local** only when running the Hub on `ws://localhost:3001/extension`.
-4. Open [chat.qwen.ai](https://chat.qwen.ai) while signed in with your own account.
+4. Open any supported host while signed in with your own account.
 5. Use **Vincular esta pestaña** in the popup. The header shows **Hub listo** when the backend handshake succeeds.
 
 The provider adapter declares its participant identity automatically. Advanced settings use the generic registration ID `conn_dom` by default.
@@ -22,17 +22,25 @@ The content script only emits `extension.dom_status` and `extension.dom_delta`. 
 
 ## Supported hosts
 
-| Host | Status |
-|---|---|
-| `chat.qwen.ai` | Supported (selectors versioned in `hosts/qwen.js`) |
-| ChatGPT, Gemini, Claude | Coming soon; no page access requested in this release |
+| Host | Adapter | Status |
+|---|---|---|
+| `chat.qwen.ai` | `hosts/qwen.js` | Supported |
+| `chatgpt.com` | `hosts/chatgpt.js` | Supported |
+| `z.ai` / `chat.z.ai` | `hosts/zai.js` | Supported |
+| Claude, Gemini | — | Coming soon; no page access requested yet |
 
-Qwen's DOM changes. If the composer is missing, the extension reports `error` instead of sending keys into the page. Reload the tab after a Qwen UI update, or adjust the selectors in `hosts/qwen.js`.
+Each adapter owns its selectors, completion signals and participant identity. If a provider changes its DOM, the adapter reports `error` instead of blindly sending keys into the page.
+
+### Z.ai / GLM selector contract
+
+The first Z.ai adapter is based on a real DOM capture from 2026-09-01. It intentionally anchors to semantic/stable attributes (`#chat-input`, `#send-message-button`, `aria-label="Stop"`, `.chat-assistant`, `#response-content-container`, `Regenerate`) and ignores volatile Svelte hashes and `bits-*` ids.
 
 ## Popup experience
 
-The popup uses the official Debatidor icon at every Chrome-required size and adapts the mascot to onboarding, waiting, and active-agent states. It exposes one primary action per state, keeps API credentials inside `chrome.storage.local`, and labels unreleased integrations as **Próximamente**.
+The popup derives the compatibility list and all **open host** actions from the live `HOSTS` catalog in `popup.js`. There are no provider-specific buttons in `popup.html`: adding a supported host to the catalog automatically adds its action and increments the active-host count.
+
+The popup uses the official Debatidor icon at every Chrome-required size and adapts the mascot to onboarding, waiting, and active-agent states. API credentials remain inside `chrome.storage.local`.
 
 ## Development
 
-Manifest V3. `hosts/qwen.js` is the host adapter. `content.js` runs the `MutationObserver`. `background.js` holds the WebSocket.
+Manifest V3. Each file in `hosts/` is a provider adapter. `content.js` runs the shared capture/tool-loop bridge and `background.js` holds the WebSocket.
