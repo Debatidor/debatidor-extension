@@ -21,10 +21,15 @@ const HOSTS = {
     domains: ['chat.z.ai', 'z.ai'],
     available: true,
   },
+  'claude.ai': {
+    name: 'Claude',
+    url: 'https://claude.ai/new',
+    domains: ['claude.ai'],
+    available: true,
+  },
 };
 
 const ROADMAP_HOSTS = [
-  { name: 'Claude', available: false },
   { name: 'Gemini', available: false },
 ];
 
