@@ -88,7 +88,7 @@ test('popup registra Z.ai y mantiene un solo CTA visible para abrir agentes', ()
 
 test('picker deriva sus opciones del catálogo sin hardcodear CTAs por provider', () => {
   const source = readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
-  const picker = source.split('function renderAgentPicker()')[1]?.split("$('btn-open-agent')")[0] ?? '';
+  const picker = source.split('function renderAgentPicker()')[1]?.split("async function renderAgentView")[0] ?? '';
   assert.match(picker, /const hosts = liveHosts\(\)/);
   assert.match(picker, /for \(const host of hosts\)/);
   assert.match(picker, /chrome\.tabs\.create\(\{ url: host\.url \}\)/);
