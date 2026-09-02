@@ -1,0 +1,30 @@
+/* Host surfaces scale with the live catalog instead of assuming two providers. */
+.open-host-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-top: 14px;
+}
+
+.open-host-buttons .open-host-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  margin-top: 0;
+  padding: 8px 10px;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.open-host-buttons .open-host-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 3+ hosts fit without turning the compatibility card into fixed columns. */
+.host-list {
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+}
