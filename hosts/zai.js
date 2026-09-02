@@ -1,8 +1,8 @@
 /**
  * HostAdapter — Z.ai / GLM (z.ai, chat.z.ai)
- * SELECTOR_VERSION: 2026-09-zai-dom-1
+ * SELECTOR_VERSION: 2026-09-zai-dom-2
  *
- * Selectores derivados de snapshots reales del DOM de z.ai (2026-09-01):
+ * Selectores derivados de snapshots reales del DOM de z.ai (2026-09-02):
  * - composer: textarea#chat-input
  * - send: button#send-message-button
  * - generación: control aria-label="Stop"
@@ -12,10 +12,11 @@
  * No se usan ids `bits-*` ni clases `svelte-*`: son artefactos volátiles.
  */
 (function attachZaiAdapter(global) {
-  const SELECTOR_VERSION = '2026-09-zai-dom-1';
+  const SELECTOR_VERSION = '2026-09-zai-dom-2';
   const COMPOSER = [
     'textarea#chat-input',
     'textarea[placeholder="How can I help you today?"]',
+    'textarea[placeholder="Send a Message"]',
   ];
   const SEND = [
     'button#send-message-button',
@@ -26,6 +27,7 @@
     'button[aria-label*="Stop" i]',
   ];
   const ASSISTANT = '.chat-assistant';
+  const USER = '.chat-user';
   const RESPONSE = '#response-content-container';
   const THINKING = '.thinking-chain-container';
   const DONE_MARKS = [
@@ -39,6 +41,7 @@
   let answerChangedAt = 0;
   const DONE_SETTLE_MS = 550;
   const FALLBACK_SETTLE_MS = 3000;
+  const SEND_ACK_TIMEOUT_MS = 2200;
 
   function first(selectors, root = document) {
     for (const selector of selectors) {
@@ -54,6 +57,10 @@
 
   function composerText(el) {
     return String(el?.value ?? '').trim();
+  }
+
+  function userMessageCount() {
+    return document.querySelectorAll(USER).length;
   }
 
   function assistantNode() {
@@ -119,6 +126,47 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  /**
+   * Z.ai/Svelte puede desmontar el textarea original justo después del click.
+   * Verificar `box.value` sobre esa referencia vieja produce un falso
+   * send_unverified aunque el mensaje ya figure en el hilo. La confirmación
+   * debe observar el DOM VIVO: nuevo user-message, Stop o composer actual vacío.
+   */
+  async function waitForSendAck(originalBox, userCountBefore) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < SEND_ACK_TIMEOUT_MS) {
+      if (userMessageCount() > userCountBefore) {
+        return { ok: true, ack: 'user_message' };
+      }
+      if (first(STOP)) {
+        return { ok: true, ack: 'generation_started' };
+      }
+      const liveBox = composer();
+      if (liveBox instanceof HTMLTextAreaElement && composerText(liveBox) === '') {
+        return {
+          ok: true,
+          ack: liveBox === originalBox ? 'composer_cleared' : 'composer_replaced',
+        };
+      }
+      await sleep(80);
+    }
+    return { ok: false, ack: 'timeout' };
+  }
+
+  function dispatchEnter(box) {
+    const key = {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true,
+    };
+    box.dispatchEvent(new KeyboardEvent('keydown', key));
+    box.dispatchEvent(new KeyboardEvent('keypress', key));
+    box.dispatchEvent(new KeyboardEvent('keyup', key));
+  }
+
   global.__debatidorHost = {
     hostId: 'zai',
     providerId: 'zai',
@@ -178,6 +226,7 @@
         return { ok: false, reason: 'insert_failed' };
       }
 
+      const userCountBefore = userMessageCount();
       let send = null;
       for (let attempt = 0; attempt < 12; attempt += 1) {
         const candidate = first(SEND);
@@ -193,28 +242,23 @@
 
       if (send) {
         send.click();
-        await sleep(300);
+        const ack = await waitForSendAck(box, userCountBefore);
+        if (ack.ok) return { ok: true, via: 'button', ack: ack.ack };
       }
 
-      if (composerText(box) !== '') {
-        const key = {
-          key: 'Enter',
-          code: 'Enter',
-          keyCode: 13,
-          which: 13,
-          bubbles: true,
-          cancelable: true,
-        };
-        box.dispatchEvent(new KeyboardEvent('keydown', key));
-        box.dispatchEvent(new KeyboardEvent('keypress', key));
-        box.dispatchEvent(new KeyboardEvent('keyup', key));
-        await sleep(350);
-      }
-
-      if (composerText(box) !== '') {
+      // Fallback: reconsultar el composer VIVO. Nunca teclear Enter sobre el
+      // textarea viejo si Svelte ya lo desmontó/reemplazó.
+      const liveBox = composer();
+      if (!(liveBox instanceof HTMLTextAreaElement)) {
         return { ok: false, reason: 'send_unverified' };
       }
-      return { ok: true, via: send ? 'button' : 'enter' };
+      if (composerText(liveBox) !== '') {
+        dispatchEnter(liveBox);
+        const ack = await waitForSendAck(liveBox, userCountBefore);
+        if (ack.ok) return { ok: true, via: 'enter', ack: ack.ack };
+      }
+
+      return { ok: false, reason: 'send_unverified' };
     },
   };
 })(globalThis);
