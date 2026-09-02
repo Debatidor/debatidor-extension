@@ -1,7 +1,7 @@
 // Debatidor popup: a compact control surface for the active browser agent.
 
-// Catálogo de hosts vivos. La vista, el contador y TODOS los botones "Abrir"
-// se derivan de esta única estructura: agregar un provider no implica tocar HTML.
+// Catálogo canónico de hosts vivos. La vista, el contador y el picker se
+// derivan de esta estructura: agregar un provider no implica tocar HTML.
 const HOSTS = {
   'chat.qwen.ai': {
     name: 'Qwen',
@@ -51,7 +51,7 @@ async function init() {
   const stored = await chrome.storage.local.get(DEFAULTS);
   fillSettings(stored);
   renderHostList();
-  renderOpenHostButtons();
+  renderAgentPicker();
 
   await refresh();
   window.setInterval(() => void refresh(), 1800);
@@ -77,6 +77,7 @@ function hostFor(url) {
 
 function showView(viewId) {
   if (isSettingsOpen) return;
+  if (viewId !== 'view-empty') setAgentPickerOpen(false);
   for (const id of VIEW_IDS) {
     $(id).classList.toggle('hidden', id !== viewId);
   }
@@ -168,23 +169,43 @@ function renderHostList() {
   }
 }
 
+function setAgentPickerOpen(open) {
+  const trigger = $('btn-open-agent');
+  const menu = $('agent-picker-menu');
+  if (!trigger || !menu) return;
+  const next = Boolean(open && liveHosts().length);
+  trigger.setAttribute('aria-expanded', String(next));
+  trigger.classList.toggle('is-open', next);
+  menu.classList.toggle('hidden', !next);
+}
+
 /**
- * Genera una acción por cada host vivo. No existen botones por-provider en
- * popup.html: al sumar un host al catálogo aparece aquí automáticamente.
+ * Un solo CTA visible. Los providers viven dentro de un picker compacto que
+ * se deriva de HOSTS; sumar un host no agrega otra fila de botones al hero.
  */
-function renderOpenHostButtons() {
-  const wrap = $('open-host-buttons');
-  if (!wrap) return;
-  wrap.replaceChildren();
+function renderAgentPicker() {
+  const trigger = $('btn-open-agent');
+  const menu = $('agent-picker-menu');
+  if (!trigger || !menu) return;
 
-  for (const host of liveHosts()) {
-    const button = document.createElement('button');
-    button.className = 'button button--primary open-host-button';
-    button.type = 'button';
-    button.title = `Abrir ${host.name}`;
+  menu.replaceChildren();
+  const hosts = liveHosts();
+  trigger.disabled = hosts.length === 0;
 
-    const label = document.createElement('span');
-    label.textContent = host.name;
+  for (const host of hosts) {
+    const option = document.createElement('button');
+    option.className = 'agent-picker-option';
+    option.type = 'button';
+    option.setAttribute('role', 'menuitem');
+    option.title = `Abrir ${host.name}`;
+
+    const copy = document.createElement('span');
+    copy.className = 'agent-picker-option-copy';
+    const name = document.createElement('strong');
+    name.textContent = host.name;
+    const state = document.createElement('small');
+    state.textContent = 'Disponible';
+    copy.append(name, state);
 
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     icon.setAttribute('viewBox', '0 0 20 20');
@@ -192,14 +213,27 @@ function renderOpenHostButtons() {
     const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     arrow.setAttribute('d', 'M6 14 14 6m-6 0h6v6');
     icon.appendChild(arrow);
-    button.append(label, icon);
 
-    button.addEventListener('click', () => {
+    option.append(copy, icon);
+    option.addEventListener('click', () => {
+      setAgentPickerOpen(false);
       chrome.tabs.create({ url: host.url });
     });
-    wrap.appendChild(button);
+    menu.appendChild(option);
   }
 }
+
+$('btn-open-agent').addEventListener('click', (event) => {
+  event.stopPropagation();
+  const open = $('btn-open-agent').getAttribute('aria-expanded') === 'true';
+  setAgentPickerOpen(!open);
+});
+
+$('agent-picker-menu').addEventListener('click', (event) => event.stopPropagation());
+document.addEventListener('click', () => setAgentPickerOpen(false));
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') setAgentPickerOpen(false);
+});
 
 async function renderAgentView(host, tab) {
   $('agent-name').textContent = host.name;
@@ -254,6 +288,7 @@ $('inject-toggle').addEventListener('change', (event) => {
 
 function openSettings({ focusApiKey = false } = {}) {
   isSettingsOpen = true;
+  setAgentPickerOpen(false);
   for (const id of VIEW_IDS) $(id).classList.add('hidden');
   $('settings').classList.remove('hidden');
   $('btn-settings').setAttribute('aria-expanded', 'true');
