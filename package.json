@@ -1,6 +1,6 @@
 {
   "name": "debatidor-extension",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "description": "Extensión Chrome de Debatidor: conecta pestañas de chat web (Qwen, ChatGPT, Z.ai, …) a las salas.",
