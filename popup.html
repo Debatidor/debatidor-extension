@@ -57,8 +57,14 @@
           <div class="hero-copy">
             <span class="eyebrow"><span class="eyebrow-dot"></span>Listo para debatir</span>
             <h1>Abre un agente compatible</h1>
-            <p>Elige cualquier agente web disponible. La lista y sus accesos se actualizan desde el catálogo de hosts compatibles.</p>
-            <div id="open-host-buttons" class="open-host-buttons"></div>
+            <p>Elige el agente web que quieras usar. Las integraciones disponibles salen del catálogo de hosts compatibles.</p>
+            <div id="agent-picker" class="agent-picker">
+              <button id="btn-open-agent" class="button button--primary agent-picker-trigger" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="agent-picker-menu">
+                <span>Abrir agente</span>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 7.5 4.5 4.5 4.5-4.5" /></svg>
+              </button>
+              <div id="agent-picker-menu" class="agent-picker-menu hidden" role="menu" aria-label="Elegir agente web"></div>
+            </div>
           </div>
           <img class="mascot mascot--idle" src="assets/mascot-idle.png" alt="Astronauta de Debatidor esperando" />
         </section>
