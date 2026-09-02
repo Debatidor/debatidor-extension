@@ -1,27 +1,84 @@
-/* Host surfaces scale with the live catalog instead of assuming two providers. */
-.open-host-buttons {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  width: 100%;
+/* Host surfaces scale with the live catalog instead of assuming providers. */
+.agent-picker {
+  width: 166px;
   margin-top: 14px;
 }
 
-.open-host-buttons .open-host-button {
+.agent-picker-trigger {
   width: 100%;
-  min-width: 0;
-  min-height: 36px;
   margin-top: 0;
-  padding: 8px 10px;
   justify-content: space-between;
-  font-size: 11px;
 }
 
-.open-host-buttons .open-host-button span {
+.agent-picker-trigger svg {
+  transition: transform 160ms ease;
+}
+
+.agent-picker-trigger.is-open svg {
+  transform: rotate(180deg);
+}
+
+.agent-picker-menu {
+  display: grid;
+  gap: 4px;
+  width: 190px;
+  margin-top: 7px;
+  padding: 5px;
+  border: 1px solid rgba(184, 174, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(10, 8, 24, 0.96);
+  box-shadow: 0 15px 34px rgba(0, 0, 0, 0.34);
+}
+
+.agent-picker-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: transparent;
+  color: #ece8ff;
+  text-align: left;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.agent-picker-option:hover,
+.agent-picker-option:focus-visible {
+  background: rgba(139, 92, 246, 0.14);
+  color: #fff;
+}
+
+.agent-picker-option-copy {
+  display: grid;
   min-width: 0;
+  line-height: 1.15;
+}
+
+.agent-picker-option strong {
   overflow: hidden;
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-picker-option small {
+  margin-top: 3px;
+  color: var(--success);
+  font-size: 8px;
+}
+
+.agent-picker-option svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: var(--cyan);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
 }
 
 /* 3+ hosts fit without turning the compatibility card into fixed columns. */

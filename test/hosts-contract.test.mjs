@@ -162,9 +162,11 @@ test('popup: HOSTS registra ChatGPT como disponible (nada de "Próximamente")', 
   assert.ok(!roadmapBlock.includes('ChatGPT'), 'ChatGPT sigue en roadmap');
 });
 
-test('popup.html: sin hardcodes de Qwen en la vista vacía', () => {
+test('popup.html: la vista vacía usa un único picker, sin CTAs legacy por host', () => {
   const html = readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   const emptyView = html.split('id="view-empty"')[1]?.split('</main>')[0] ?? '';
   assert.ok(!emptyView.includes('btn-open-qwen'), 'botón viejo Abrir Qwen sigue en el HTML');
-  assert.match(emptyView, /open-host-buttons/);
+  assert.ok(!emptyView.includes('open-host-buttons'), 'contenedor legacy de botones por host sigue en el HTML');
+  assert.match(emptyView, /id="btn-open-agent"/);
+  assert.match(emptyView, /id="agent-picker-menu"/);
 });
