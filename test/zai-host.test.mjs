@@ -68,18 +68,31 @@ test('adapter Z.ai usa selectores semánticos del snapshot y evita ids volátile
   assert.doesNotMatch(source, /svelte-[a-z0-9]+/i);
 });
 
-test('popup registra Z.ai como host vivo y genera acciones desde el catálogo', () => {
+test('popup registra Z.ai y mantiene un solo CTA visible para abrir agentes', () => {
   const source = readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   assert.match(source, /'chat\.z\.ai'/);
   assert.match(source, /domains:\s*\['chat\.z\.ai',\s*'z\.ai'\]/);
   assert.match(source, /function liveHosts\(\)/);
-  assert.match(source, /for \(const host of liveHosts\(\)\)/);
-  assert.match(source, /wrap\.replaceChildren\(\)/);
+  assert.match(source, /function renderAgentPicker\(\)/);
+  assert.match(source, /for \(const host of hosts\)/);
+  assert.match(source, /menu\.replaceChildren\(\)/);
 
   const html = readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   const emptyView = html.split('id="view-empty"')[1]?.split('</main>')[0] ?? '';
-  assert.match(emptyView, /id="open-host-buttons"/);
+  assert.match(emptyView, /id="btn-open-agent"/);
+  assert.match(emptyView, /id="agent-picker-menu"/);
+  assert.equal((emptyView.match(/class="button button--primary agent-picker-trigger"/g) ?? []).length, 1);
+  assert.ok(!/open-host-buttons/.test(emptyView));
   assert.ok(!/btn-open-(qwen|chatgpt|zai)/.test(emptyView));
+});
+
+test('picker deriva sus opciones del catálogo sin hardcodear CTAs por provider', () => {
+  const source = readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
+  const picker = source.split('function renderAgentPicker()')[1]?.split("$('btn-open-agent')")[0] ?? '';
+  assert.match(picker, /const hosts = liveHosts\(\)/);
+  assert.match(picker, /for \(const host of hosts\)/);
+  assert.match(picker, /chrome\.tabs\.create\(\{ url: host\.url \}\)/);
+  assert.doesNotMatch(picker, /Qwen|ChatGPT|Z\.ai/);
 });
 
 test('Qwen, ChatGPT y Z.ai usan connectionIds distintos', () => {
