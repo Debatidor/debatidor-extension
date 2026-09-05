@@ -8,11 +8,11 @@ The extension does not access the local filesystem. File changes are handled by 
 
 1. Create an API key in the Debatidor Hub under **API Keys**.
 2. Open Chrome → `chrome://extensions` → enable **Developer mode** → choose **Load unpacked** → select this folder.
-3. Open the popup, paste the `deb_live_…` key, and save. Production (`wss://api.debatidor.com/extension`) is selected by default; choose **Local** only when running the Hub on `ws://localhost:3001/extension`.
+3. Open the popup settings and paste your `deb_live_…` key into **Clave de Debatidor (API Key)**. For an Arena, copy its `deb_…` ID into **ID de sala (Arena)** and save. Production (`wss://api.debatidor.com/extension`) is selected by default; choose **Local** only when running the Hub on `ws://localhost:3001/extension`.
 4. Open any supported host while signed in with your own account.
-5. Use **Vincular esta pestaña** in the popup. The header shows **Hub listo** when the backend handshake succeeds.
+5. Use **Vincular esta pestaña** in the popup. The header shows **Hub conectado** when the backend handshake succeeds. The Arena must also show the selected participant as available before you send a turn.
 
-The provider adapter declares its participant identity automatically. Advanced settings use the generic registration ID `conn_dom` by default.
+The provider adapter declares its participant identity automatically. Leave **ID de conexión del navegador** as `conn_dom` in advanced settings. The room setting applies to the linked tabs in this browser; change it when switching Arenas. Existing saved settings are preserved, and the room may remain empty for ad-hoc turns without a fixed Arena.
 
 ## How it talks to the backend
 
@@ -46,6 +46,8 @@ The popup derives the compatibility list and all **open host** actions from the 
 
 The popup uses the official Debatidor icon at every Chrome-required size and adapts the mascot to onboarding, waiting, and active-agent states. API credentials remain inside `chrome.storage.local`.
 
+In version 0.4.7 the **Hub** indicator reflects the actual socket, and **Pestaña** reflects the tab's consent and content-script connection. Neither confirms that the participant is ready in the Arena. The **Respuesta** indicator remains neutral because the popup does not receive a persistence confirmation: read the response in the Arena, then reload the Arena to check that it was saved. If permission is active but the content script is missing, the popup asks you to reload that tab.
+
 ## Room routing (0.4.6)
 
 For an Arena turn, save its ID in the extension settings and enable injection for the selected chat tab. Use the same Debatidor account in the Hub, extension and MCP client. A provider API key is not required for web turns.
@@ -53,6 +55,10 @@ For an Arena turn, save its ID in the extension settings and enable injection fo
 Room and turn IDs travel with each prompt and response. A tab explicitly bound to another room ignores the prompt; configuration refreshes cannot move a captured response to another room. Presence reports consent and whether the host is busy. Keep one enabled tab per provider when running a single-response acceptance check.
 
 After updating the extension, reload the chat tabs and enable injection again. Verify persistence by reloading the Arena and checking the participant's response, separately from the human prompt.
+
+A suspended browser tab can stop reporting its status while the Hub socket remains open. If the Arena reports the participant as disconnected, return to the chat tab and check its state before sending a new turn. An open Hub socket alone does not prove that a background tab can currently receive and capture a turn.
+
+When multiple tabs use the same provider and room, a paused tab no longer overrides a linked tab's fresh status. This protection lasts only while that linked tab keeps reporting; it does not replay cached status or extend the Hub's 30-second freshness window. Revoking consent, disconnecting the tab, or reconnecting the socket clears its local presence. Paused tabs receive no injected prompts.
 
 ## Development
 

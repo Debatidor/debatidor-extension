@@ -38,7 +38,7 @@
           <div class="hero-copy">
             <span class="eyebrow"><span class="eyebrow-dot"></span>Primer despegue</span>
             <h1>Conecta tu extensión</h1>
-            <p>Añade tu API Key para enlazar este navegador con tus debates.</p>
+            <p>Añade tu clave de Debatidor para enlazar este navegador con tus debates.</p>
             <button id="btn-goto-key" class="button button--primary" type="button">
               Configurar acceso
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4.5 5.5 5.5-5.5 5.5" /></svg>
@@ -106,13 +106,14 @@
           </label>
         </section>
         <div class="flow" aria-label="Flujo de la extensión">
-          <span><i class="flow-dot is-ready"></i>Sala</span>
+          <span><i id="flow-hub-dot" class="flow-dot"></i>Hub</span>
           <i class="flow-line"></i>
           <span><i id="flow-tab-dot" class="flow-dot"></i>Pestaña</span>
           <i class="flow-line"></i>
           <span><i id="flow-answer-dot" class="flow-dot"></i>Respuesta</span>
         </div>
-        <p class="helper-text">Al activarla, el agente de esta pestaña recibirá los turnos de la sala y enviará sus respuestas al Hub.</p>
+        <p id="room-hint" class="helper-text"></p>
+        <p class="helper-text">Vincular autoriza los turnos en esta pestaña. Comprueba la respuesta y su guardado en la transcripción de la Arena.</p>
       </main>
 
       <aside id="settings" class="settings-panel hidden" aria-labelledby="settings-title">
@@ -125,12 +126,15 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
           </button>
         </div>
-        <label class="field-label" for="apiKey">API Key</label>
+        <label class="field-label" for="apiKey">Clave de Debatidor (API Key)</label>
         <div class="password-field">
           <input id="apiKey" class="input" type="password" autocomplete="off" placeholder="deb_live_…" />
           <button id="btn-toggle-key" class="input-action" type="button" aria-label="Mostrar API Key">Mostrar</button>
         </div>
-        <p class="field-help">Se almacena en el espacio local privado de la extensión.</p>
+        <p class="field-help">Empieza con deb_live_… y se genera en API Keys de Debatidor. Se guarda en el espacio local privado de la extensión.</p>
+        <label class="field-label" for="debateId">ID de sala (Arena)</label>
+        <input id="debateId" class="input input--mono" spellcheck="false" placeholder="deb_…" aria-describedby="debateId-help" />
+        <p id="debateId-help" class="field-help">Pega el ID deb_… que copiaste en tu Arena. Se aplica a las pestañas vinculadas de este navegador. Déjalo vacío solo para turnos sin una sala fija.</p>
         <label class="field-label" for="backendUrl">Entorno</label>
         <div class="segmented" role="group" aria-label="Elegir entorno">
           <button id="chip-prod" class="segment" type="button" data-url="wss://api.debatidor.com/extension">Producción</button>
@@ -139,10 +143,9 @@
         <input id="backendUrl" class="input input--mono" spellcheck="false" aria-label="URL WebSocket" />
         <details class="advanced-settings">
           <summary>Opciones avanzadas</summary>
-          <label class="field-label" for="connectionId">ID de conexión</label>
+          <label class="field-label" for="connectionId">ID de conexión del navegador</label>
           <input id="connectionId" class="input input--mono" spellcheck="false" />
-          <label class="field-label" for="debateId">ID de debate <span>opcional</span></label>
-          <input id="debateId" class="input input--mono" spellcheck="false" />
+          <p class="field-help">Deja conn_dom. Qwen, ChatGPT y los demás proveedores reciben su identidad automáticamente.</p>
         </details>
         <button id="save" class="button button--primary button--save" type="button">
           <span>Guardar y reconectar</span>

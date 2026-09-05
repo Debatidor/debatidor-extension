@@ -16,10 +16,14 @@ const PORT_NAME = 'debatidor-tab';
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 const HEARTBEAT_MS = 25000;
+// Matches the Hub's freshness window. Cached status never generates a heartbeat.
+const PRESENCE_FRESH_MS = 30000;
 
 let socket = null;
 /** @type {Map<number, chrome.runtime.Port>} */
 const tabs = new Map();
+// Only fresh, consented status actually sent over this socket is recorded.
+const enabledPresence = new Map();
 let socketRetryTimer = 0;
 let socketAttempts = 0;
 let heartbeatTimer = 0;
@@ -44,31 +48,63 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   }
   tabs.set(tabId, port);
+  enabledPresence.delete(tabId);
   pushConfig(tabId, port);
 
   port.onMessage.addListener((msg) => {
+    if (tabs.get(tabId) !== port) return;
     if (msg?.type === 'ping') return; // keep-alive: receiving resets the SW idle timer
     if (msg?.type !== 'wire') return;
     const payload = msg.payload;
     if (!payload || !OUTBOUND.has(payload.event)) return;
-    void relay(tabId, payload);
+    void relay(tabId, payload, port);
   });
 
   port.onDisconnect.addListener(() => {
     // Chrome expone aquí runtime.lastError cuando el Port se cierra porque la
     // página entra al back/forward cache. Leerlo evita "Unchecked ...".
     void chrome.runtime.lastError;
-    if (tabs.get(tabId) === port) tabs.delete(tabId);
+    if (tabs.get(tabId) === port) {
+      tabs.delete(tabId);
+      enabledPresence.delete(tabId);
+    }
   });
   void ensureSocket();
 });
 
-async function relay(tabId, payload) {
+async function relay(tabId, payload, sourcePort) {
+  const enabled = await isEnabled(tabId);
+  if (tabs.get(tabId) !== sourcePort) return;
   // Per-tab consent: captured deltas require the popup toggle to be ON.
-  if (payload.event === 'extension.dom_delta' && !(await isEnabled(tabId))) return;
+  if (payload.event === 'extension.dom_delta' && !enabled) return;
   if (socket?.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(payload));
-  lastSocketActivityAt = Date.now();
+  const now = Date.now();
+  let presence;
+  if (payload.event === 'extension.dom_status') {
+    const data = payload.data;
+    if (!data || typeof data.connectionId !== 'string') return;
+    const injectionEnabled = enabled && data.injectionEnabled === true;
+    payload = { ...payload, data: { ...data, injectionEnabled } };
+    const key = JSON.stringify([data.connectionId, data.debateId ?? null]);
+    enabledPresence.delete(tabId);
+    for (const [otherTabId, previous] of enabledPresence) {
+      if (!tabs.has(otherTabId) || now - previous.observedAt >= PRESENCE_FRESH_MS) {
+        enabledPresence.delete(otherTabId);
+        continue;
+      }
+      // An unlinked tab must not pause the linked tab of the same provider/room.
+      // Suppress this report; do not replay the other tab's cached state.
+      if (!injectionEnabled && previous.key === key) return;
+    }
+    if (injectionEnabled) presence = { key, observedAt: now };
+  }
+  try {
+    socket.send(JSON.stringify(payload));
+  } catch {
+    return;
+  }
+  if (presence) enabledPresence.set(tabId, presence);
+  lastSocketActivityAt = now;
 }
 
 function pushConfig(tabId, port) {
@@ -103,6 +139,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return false;
     }
     chrome.storage.session.set({ [enabledKey(tabId)]: enabled }).then(async () => {
+      // Revocation immediately stops this tab from suppressing sibling reports.
+      // A fresh content-script status will report the pause; never fabricate one.
+      enabledPresence.delete(tabId);
       const port = tabs.get(tabId);
       if (port) pushConfig(tabId, port);
       sendResponse({ ok: true, enabled });
@@ -116,6 +155,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         socket: socket?.readyState === WebSocket.OPEN ? 'open' : 'closed',
         hasKey: Boolean(config.apiKey),
         backendUrl: config.backendUrl,
+        debateId: config.debateId,
         tabs: [...tabs.keys()],
       });
     });
@@ -167,6 +207,7 @@ async function ensureSocket() {
 
   currentSocket.addEventListener('open', () => {
     if (socket !== currentSocket) return;
+    enabledPresence.clear();
     socketAttempts = 0;
     startHeartbeat();
     // Reenviar config fuerza a cada content script a reafirmar su estado
@@ -186,20 +227,21 @@ async function ensureSocket() {
     if (parsed.event === 'extension.dom_prompt') {
       // CRÍTICO multi-host: conservar connectionId para que content.js pueda
       // ignorar prompts destinados a otra pestaña (Qwen vs ChatGPT, etc.).
-      broadcast({
+      void broadcast({
         type: 'dom_prompt',
         connectionId: parsed.data?.connectionId,
         debateId: parsed.data?.debateId,
         turnId: parsed.data?.turnId,
         systemPreamble: parsed.data?.systemPreamble,
         promptText: parsed.data?.promptText,
-      });
+      }, currentSocket);
     }
   });
 
   currentSocket.addEventListener('close', () => {
     if (socket !== currentSocket) return;
     socket = null;
+    enabledPresence.clear();
     stopHeartbeat();
     // Exponential backoff so a down backend doesn't get hammered.
     const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** socketAttempts++);
@@ -234,13 +276,20 @@ function reconnect() {
   stopHeartbeat();
   const previousSocket = socket;
   socket = null;
+  enabledPresence.clear();
   previousSocket?.close();
   void ensureSocket();
 }
 
-function broadcast(msg) {
+async function broadcast(msg, sourceSocket) {
   for (const [tabId, port] of tabs) {
-    if (!safePost(port, msg) && tabs.get(tabId) === port) tabs.delete(tabId);
+    if (msg.type === 'dom_prompt' && !(await isEnabled(tabId))) continue;
+    if (socket !== sourceSocket) return;
+    if (tabs.get(tabId) !== port) continue;
+    if (!safePost(port, msg) && tabs.get(tabId) === port) {
+      tabs.delete(tabId);
+      enabledPresence.delete(tabId);
+    }
   }
 }
 

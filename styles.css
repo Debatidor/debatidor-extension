@@ -211,6 +211,7 @@ h1, h2, p { margin: 0; }
 .flow-dot.is-ready { background: var(--success); box-shadow: 0 0 8px rgba(94, 233, 173, 0.4); }
 .flow-line { width: 24px; height: 1px; margin: 0 7px; background: linear-gradient(90deg, var(--line-strong), rgba(184, 174, 255, 0.06)); }
 .helper-text { padding: 0 8px; text-align: center; }
+#room-hint { overflow-wrap: anywhere; }
 
 .settings-panel {
   position: relative; z-index: 4; margin: 16px; padding: 17px; border-radius: 20px;

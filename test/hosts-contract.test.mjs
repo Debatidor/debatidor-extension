@@ -127,7 +127,7 @@ test('content re-sincroniza estado después de BFCache y no consume estados que 
 test('Ports por pestaña son generacionales: un disconnect viejo no borra el Port nuevo', () => {
   const source = readFileSync(path.join(ROOT, 'background.js'), 'utf8');
   assert.match(source, /const previous = tabs\.get\(tabId\)/);
-  assert.match(source, /if \(tabs\.get\(tabId\) === port\) tabs\.delete\(tabId\)/);
+  assert.match(source, /if \(tabs\.get\(tabId\) === port\)\s*\{\s*tabs\.delete\(tabId\)/);
   assert.match(source, /void chrome\.runtime\.lastError/);
 });
 

@@ -20,7 +20,7 @@ test('background preserves the room and a stale close cannot replace the current
       runtime: { onConnect: { addListener() {} }, onMessage: { addListener() {} } },
       storage: {
         local: { get: async () => ({ apiKey: 'fixture', backendUrl: 'wss://test.invalid/extension', debateId: 'room-a' }) },
-        session: { get: async () => ({}) },
+        session: { get: async () => ({ 'injection:7': true }) },
       },
     },
     fixturePort: { postMessage: (msg) => forwarded.push(msg) },
@@ -37,6 +37,7 @@ test('background preserves the room and a stale close cannot replace the current
   sockets[0].handlers.message(event);
   assert.equal(forwarded.length, 0);
   sockets[1].handlers.message(event);
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(forwarded[0].debateId, 'room-a');
   assert.equal(forwarded[0].connectionId, 'conn_dom_qwen');
 });

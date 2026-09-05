@@ -46,6 +46,7 @@ const $ = (id) => document.getElementById(id);
 let activeTabId = null;
 let isSettingsOpen = false;
 let toastTimer = 0;
+let runtimeStatus = null;
 
 void init();
 
@@ -115,7 +116,7 @@ async function refresh() {
   }
 
   showView('view-agent');
-  await renderAgentView(host, tab);
+  await renderAgentView(host, tab, status);
 }
 
 function getRuntimeStatus() {
@@ -131,8 +132,10 @@ function getRuntimeStatus() {
 }
 
 function renderStatus(status) {
+  runtimeStatus = status;
   const pill = $('connection-pill');
   pill.className = 'status-pill';
+  $('flow-hub-dot').classList.toggle('is-ready', status?.socket === 'open' && Boolean(status?.hasKey));
 
   if (!status) {
     pill.classList.add('is-error');
@@ -148,7 +151,7 @@ function renderStatus(status) {
 
   const connected = status.socket === 'open';
   pill.classList.add(connected ? 'is-open' : 'is-loading');
-  $('ws-label').textContent = connected ? 'Hub listo' : 'Reconectando';
+  $('ws-label').textContent = connected ? 'Hub conectado' : 'Reconectando';
 }
 
 function renderHostList() {
@@ -240,9 +243,12 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') setAgentPickerOpen(false);
 });
 
-async function renderAgentView(host, tab) {
+async function renderAgentView(host, tab, status) {
   $('agent-name').textContent = host.name;
   $('agent-url').textContent = readableTabUrl(tab?.url);
+  $('room-hint').textContent = status?.debateId
+    ? `Sala configurada: ${status.debateId}`
+    : 'Sin sala fija. Para usar una Arena, pega su ID en Ajustes.';
 
   if (tab?.id == null) {
     setToggle(false);
@@ -264,10 +270,20 @@ function readableTabUrl(url) {
 }
 
 function setToggle(enabled) {
+  const hasPort = runtimeStatus?.tabs?.includes(activeTabId) === true;
+  const hasSocket = runtimeStatus?.socket === 'open';
   $('inject-toggle').checked = enabled;
-  $('toggle-hint').textContent = enabled ? 'Activa · intercambiando turnos' : 'La extensión está en pausa';
-  $('flow-tab-dot').classList.toggle('is-ready', enabled);
-  $('flow-answer-dot').classList.toggle('is-ready', enabled);
+  $('toggle-hint').textContent = !enabled
+    ? 'La extensión está en pausa'
+    : !hasPort
+      ? 'Permiso activo · recarga esta pestaña'
+      : !hasSocket
+        ? 'Permiso activo · esperando al Hub'
+        : 'Permiso activo · esperando turnos';
+  $('flow-tab-dot').classList.toggle('is-ready', enabled && hasPort);
+  // The toggle grants consent; it is not evidence of a captured or saved reply.
+  $('flow-answer-dot').classList.remove('is-ready');
+  $('flow-answer-dot').parentElement.title = 'Comprueba la respuesta y su guardado en la Arena';
 }
 
 $('inject-toggle').addEventListener('change', (event) => {
@@ -286,7 +302,7 @@ $('inject-toggle').addEventListener('change', (event) => {
         return;
       }
       setToggle(enabled);
-      showToast(enabled ? 'Pestaña vinculada' : 'Pestaña en pausa');
+      showToast(enabled ? 'Permiso de inyección activado' : 'Pestaña en pausa');
     },
   );
 });
@@ -356,7 +372,7 @@ $('save').addEventListener('click', () => {
 
   if (!config.apiKey) {
     $('apiKey').focus();
-    showToast('Añade una API Key para continuar', true);
+    showToast('Añade tu clave de Debatidor para continuar', true);
     return;
   }
 
