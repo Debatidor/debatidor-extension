@@ -46,6 +46,14 @@ The popup derives the compatibility list and all **open host** actions from the 
 
 The popup uses the official Debatidor icon at every Chrome-required size and adapts the mascot to onboarding, waiting, and active-agent states. API credentials remain inside `chrome.storage.local`.
 
+## Room routing (0.4.6)
+
+For an Arena turn, save its ID in the extension settings and enable injection for the selected chat tab. Use the same Debatidor account in the Hub, extension and MCP client. A provider API key is not required for web turns.
+
+Room and turn IDs travel with each prompt and response. A tab explicitly bound to another room ignores the prompt; configuration refreshes cannot move a captured response to another room. Presence reports consent and whether the host is busy. Keep one enabled tab per provider when running a single-response acceptance check.
+
+After updating the extension, reload the chat tabs and enable injection again. Verify persistence by reloading the Arena and checking the participant's response, separately from the human prompt.
+
 ## Development
 
 Manifest V3. Each file in `hosts/` is a provider adapter. `content.js` runs the shared capture/tool-loop bridge and `background.js` holds the WebSocket.

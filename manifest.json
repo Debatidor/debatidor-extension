@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Debatidor",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page. Does not access the disk.",
   "permissions": ["storage", "tabs"],
   "icons": {

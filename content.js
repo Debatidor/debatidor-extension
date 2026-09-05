@@ -48,6 +48,7 @@
   const hostConnectionId = host.connectionId ?? 'conn_dom';
   let connectionId = hostConnectionId;
   let debateId = null;
+  let configuredDebateId = '';
   /** @type {'unknown' | 'enabled' | 'disabled'} */
   let injectionEnabled = 'unknown';
 
@@ -153,7 +154,9 @@
       } else {
         connectionId = hostConnectionId;
       }
-      debateId = msg.debateId ?? debateId;
+      configuredDebateId = String(msg.debateId ?? '').trim();
+      // Una reconexión MV3 no cambia la identidad del turno ya en vuelo.
+      if (!captureArmed) debateId = configuredDebateId || null;
       injectionEnabled = Boolean(msg.enabled) ? 'enabled' : 'disabled';
       if (injectionEnabled === 'disabled') {
         captureArmed = false;
@@ -168,9 +171,11 @@
       return;
     }
     if (msg?.type !== 'dom_prompt') return;
-    if (injectionEnabled === 'disabled') return;
+    if (injectionEnabled !== 'enabled') return;
     // Prompt dirigido a otro host (multi-modelo): esta pestaña no interviene.
     if (msg.connectionId && msg.connectionId !== connectionId) return;
+    if (msg.debateId && configuredDebateId && msg.debateId !== configuredDebateId) return;
+    if (captureArmed) return;
     const status = host.detectStatus();
     if (status === 'thinking' || status === 'generating') {
       // El host está ocupado por una conversación ajena o un turno anterior:
@@ -178,6 +183,7 @@
       publishStatus(status, true);
       return;
     }
+    debateId = msg.debateId || configuredDebateId || null;
     turnId = msg.turnId ?? null;
     lastAnswer = '';
     sequenceNumber = 0;
@@ -236,7 +242,11 @@
   }
 
   function tick() {
-    if (pageFrozen || injectionEnabled === 'disabled') return;
+    if (pageFrozen) return;
+    if (injectionEnabled !== 'enabled') {
+      publishStatus('waiting');
+      return;
+    }
     const hostStatus = host.detectStatus();
     const answerKey = currentAnswerKey();
     if (captureArmed && answerKey && answerKey !== armedAnswerKey) {
@@ -394,6 +404,8 @@
         debateId,
         turnId,
         status,
+        injectionEnabled: injectionEnabled === 'enabled',
+        hostBusy: ['thinking', 'generating'].includes(host.detectStatus()),
         hostId: host.hostId,
         selectorVersion: host.selectorVersion,
       },

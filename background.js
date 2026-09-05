@@ -151,6 +151,8 @@ async function ensureSocket() {
   }
   const config = await loadConfig();
   if (!config.apiKey || !config.backendUrl) return;
+  // Another port can finish loading configuration while this await is pending.
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
 
   const url = new URL(config.backendUrl);
   url.searchParams.set('connectionId', config.connectionId);
@@ -159,10 +161,12 @@ async function ensureSocket() {
   // accepts the key as a query parameter instead.
   url.searchParams.set('apiKey', config.apiKey);
 
-  socket = new WebSocket(url);
+  const currentSocket = new WebSocket(url);
+  socket = currentSocket;
   lastSocketActivityAt = Date.now();
 
-  socket.addEventListener('open', () => {
+  currentSocket.addEventListener('open', () => {
+    if (socket !== currentSocket) return;
     socketAttempts = 0;
     startHeartbeat();
     // Reenviar config fuerza a cada content script a reafirmar su estado
@@ -170,7 +174,8 @@ async function ensureSocket() {
     for (const [tabId, port] of tabs) pushConfig(tabId, port);
   });
 
-  socket.addEventListener('message', (raw) => {
+  currentSocket.addEventListener('message', (raw) => {
+    if (socket !== currentSocket) return;
     lastSocketActivityAt = Date.now();
     let parsed;
     try {
@@ -184,6 +189,7 @@ async function ensureSocket() {
       broadcast({
         type: 'dom_prompt',
         connectionId: parsed.data?.connectionId,
+        debateId: parsed.data?.debateId,
         turnId: parsed.data?.turnId,
         systemPreamble: parsed.data?.systemPreamble,
         promptText: parsed.data?.promptText,
@@ -191,7 +197,8 @@ async function ensureSocket() {
     }
   });
 
-  socket.addEventListener('close', () => {
+  currentSocket.addEventListener('close', () => {
+    if (socket !== currentSocket) return;
     socket = null;
     stopHeartbeat();
     // Exponential backoff so a down backend doesn't get hammered.
@@ -225,8 +232,9 @@ function stopHeartbeat() {
 function reconnect() {
   clearTimeout(socketRetryTimer);
   stopHeartbeat();
-  socket?.close();
+  const previousSocket = socket;
   socket = null;
+  previousSocket?.close();
   void ensureSocket();
 }
 
