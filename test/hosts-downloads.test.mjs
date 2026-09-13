@@ -97,11 +97,12 @@ test('hosts sin listDownloads (Qwen, Z.ai) siguen cumpliendo el contrato base: c
   assert.match(content, /msg\.connectionId && msg\.connectionId !== connectionId\) return;\n[\s\S]*?msg\.debateId && configuredDebateId/);
 });
 
-test('manifest 0.5.1 carga Media Rail antes de cada host y el popup conserva fallback manual', () => {
+test('manifest 0.5.2 carga Media Rail y guardado iniciado por extensión sin romper fallback manual', () => {
   const manifest = JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
   const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(manifest.version, '0.5.1');
-  assert.equal(pkg.version, '0.5.1');
+  assert.equal(manifest.version, '0.5.2');
+  assert.equal(pkg.version, '0.5.2');
+  assert.equal(manifest.background.service_worker, 'background-entry.js');
   for (const entry of manifest.content_scripts) {
     assert.equal(entry.js[0], 'asset-transport.js', `${entry.matches[0]} carga el transporte primero`);
     assert.equal(entry.js[entry.js.length - 1], 'content.js');
@@ -116,9 +117,15 @@ test('manifest 0.5.1 carga Media Rail antes de cada host y el popup conserva fal
 
   const chatgpt = manifest.content_scripts.find((entry) => entry.matches.includes('https://chatgpt.com/*'));
   assert.ok(chatgpt.js.includes('asset-integrity-fallback.js'));
+  assert.ok(chatgpt.js.includes('asset-save-intent.js'));
   assert.ok(chatgpt.js.includes('hosts/chatgpt-assets.js'));
+  assert.ok(chatgpt.js.includes('extension-save.js'));
   assert.ok(chatgpt.js.indexOf('asset-integrity-fallback.js') < chatgpt.js.indexOf('hosts/chatgpt.js'));
-  assert.ok(chatgpt.js.indexOf('hosts/chatgpt-assets.js') < chatgpt.js.indexOf('content.js'));
+  assert.ok(chatgpt.js.indexOf('hosts/chatgpt-assets.js') < chatgpt.js.indexOf('extension-save.js'));
+  assert.ok(chatgpt.js.indexOf('extension-save.js') < chatgpt.js.indexOf('content.js'));
+
+  const backgroundEntry = readFileSync(path.join(ROOT, 'background-entry.js'), 'utf8');
+  assert.match(backgroundEntry, /importScripts\(['"]background\.js['"], ['"]asset-save-background\.js['"]\)/);
 
   const popup = readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   assert.match(popup, /id="asset-card"/);
