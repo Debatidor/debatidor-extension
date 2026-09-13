@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Extensión Chrome de Debatidor: conecta pestañas de chat web (Qwen, ChatGPT, Z.ai, Claude, …) a las salas.",
   "scripts": {
-    "test": "node --test test/hosts-downloads.test.mjs test/asset-save-background.test.mjs test/asset-save-intent.test.mjs"
+    "test": "node --test test/asset-transport.test.mjs test/background-*.test.mjs test/chatgpt-*.test.mjs"
   }
 }
