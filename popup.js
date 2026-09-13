@@ -103,11 +103,13 @@ async function refresh() {
   if (!stored.apiKey) {
     showView('view-first');
     renderStatus({ socket: 'closed', hasKey: false });
+    renderAssetTickets(null);
     return;
   }
 
   const status = await getRuntimeStatus();
   renderStatus(status);
+  renderAssetTickets(status);
 
   const host = hostFor(tab?.url);
   if (!host) {
@@ -311,6 +313,7 @@ function openSettings({ focusApiKey = false } = {}) {
   isSettingsOpen = true;
   setAgentPickerOpen(false);
   for (const id of VIEW_IDS) $(id).classList.add('hidden');
+  $('asset-card').classList.add('hidden');
   $('settings').classList.remove('hidden');
   $('btn-settings').setAttribute('aria-expanded', 'true');
   $('btn-settings').setAttribute('aria-label', 'Cerrar ajustes');
@@ -408,6 +411,123 @@ function isWebSocketUrl(value) {
     return url.protocol === 'ws:' || url.protocol === 'wss:';
   } catch {
     return false;
+  }
+}
+
+// ------------------------------------------------------- asset rail
+// Fallback manual del Media Rail out-of-band (ADR-0013). El popup pide la
+// URL del ticket al service worker y hace el PUT él mismo; el token nunca
+// aparece en la UI ni en el chat.
+
+let assetUploading = new Set();
+
+function sendRuntime(message) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(response ?? null);
+    });
+  });
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function assetStateLabel(ticket) {
+  if (ticket.state === 'done') return 'Subido';
+  if (ticket.state === 'failed') return ticket.retryable ? `Falló: ${ticket.lastError ?? ''}` : `Ticket consumido: ${ticket.lastError ?? ''}`;
+  if (ticket.state === 'dispatched') return 'Buscando el archivo en el chat…';
+  return 'Esperando una pestaña vinculada';
+}
+
+function renderAssetTickets(status) {
+  const card = $('asset-card');
+  const list = $('asset-list');
+  if (!card || !list) return;
+  const tickets = Array.isArray(status?.assetTickets) ? status.assetTickets : [];
+  card.classList.toggle('hidden', isSettingsOpen || tickets.length === 0);
+  $('asset-count').textContent = String(tickets.length);
+  list.replaceChildren();
+  for (const ticket of tickets) {
+    const row = document.createElement('div');
+    row.className = `asset-item is-${ticket.state}`;
+    row.setAttribute('role', 'listitem');
+
+    const copy = document.createElement('div');
+    copy.className = 'asset-copy';
+    const name = document.createElement('strong');
+    name.textContent = ticket.fileName;
+    const meta = document.createElement('small');
+    const parts = [ticket.path];
+    if (ticket.expectedBytes) parts.push(formatBytes(ticket.expectedBytes));
+    meta.textContent = parts.join(' · ');
+    const state = document.createElement('span');
+    state.className = 'asset-state';
+    state.textContent = assetStateLabel(ticket);
+    copy.append(name, meta, state);
+    row.appendChild(copy);
+
+    if (ticket.retryable && !assetUploading.has(ticket.ticketId)) {
+      const label = document.createElement('label');
+      label.className = 'button button--primary asset-upload';
+      const text = document.createElement('span');
+      text.textContent = ticket.state === 'failed' ? 'Reintentar a mano' : 'Subir a mano';
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.className = 'sr-only';
+      input.setAttribute('aria-label', `Elegir archivo para ${ticket.fileName}`);
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (file) void manualUpload(ticket, file);
+      });
+      label.append(text, input);
+      row.appendChild(label);
+    } else if (assetUploading.has(ticket.ticketId)) {
+      const busy = document.createElement('span');
+      busy.className = 'asset-busy';
+      busy.textContent = 'Subiendo…';
+      row.appendChild(busy);
+    }
+    list.appendChild(row);
+  }
+}
+
+async function manualUpload(ticket, file) {
+  const transport = globalThis.__debatidorAssetTransport;
+  if (!transport) {
+    showToast('Transporte no disponible', true);
+    return;
+  }
+  if (ticket.expectedBytes && file.size !== ticket.expectedBytes) {
+    showToast(`Tamaño distinto: ${formatBytes(file.size)} vs ${formatBytes(ticket.expectedBytes)} esperados`, true);
+    return;
+  }
+  const answer = await sendRuntime({ type: 'asset-ticket-url', ticketId: ticket.ticketId });
+  if (!answer?.ok) {
+    showToast(answer?.reason === 'ticket_not_retryable' ? 'Ese ticket ya fue usado: crea uno nuevo' : 'Ticket no disponible', true);
+    void refresh();
+    return;
+  }
+  assetUploading.add(ticket.ticketId);
+  renderAssetTickets(runtimeStatus);
+  try {
+    const result = await transport.putToRelay({ ...answer.ticket, uploadUrl: answer.uploadUrl }, file, { fetchImpl: fetch });
+    await sendRuntime({ type: 'asset-manual-result', ticketId: ticket.ticketId, ok: true, bytes: result.bytes, sha256: result.sha256 });
+    showToast(`${ticket.fileName} subido (${formatBytes(result.bytes)})`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await sendRuntime({ type: 'asset-manual-result', ticketId: ticket.ticketId, ok: false, error: message });
+    showToast(`No se pudo subir: ${message}`, true);
+  } finally {
+    assetUploading.delete(ticket.ticketId);
+    void refresh();
   }
 }
 

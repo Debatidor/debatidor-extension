@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Debatidor",
-  "version": "0.4.7",
-  "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page. Does not access the disk.",
+  "version": "0.5.0",
+  "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page and relays files the assistant publishes to your Debatidor agent. Does not access the disk.",
   "permissions": ["storage", "tabs"],
   "icons": {
     "16": "assets/icon-16.png",
@@ -30,22 +30,22 @@
   "content_scripts": [
     {
       "matches": ["https://chat.qwen.ai/*"],
-      "js": ["hosts/qwen.js", "content.js"],
+      "js": ["asset-transport.js", "hosts/qwen.js", "content.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://chatgpt.com/*"],
-      "js": ["hosts/chatgpt.js", "hosts/chatgpt-stability.js", "content.js"],
+      "js": ["asset-transport.js", "hosts/chatgpt.js", "hosts/chatgpt-stability.js", "content.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://z.ai/*", "https://*.z.ai/*"],
-      "js": ["hosts/zai.js", "content.js"],
+      "js": ["asset-transport.js", "hosts/zai.js", "content.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://claude.ai/*"],
-      "js": ["hosts/claude.js", "content.js"],
+      "js": ["asset-transport.js", "hosts/claude.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

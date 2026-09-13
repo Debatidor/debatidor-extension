@@ -9,6 +9,10 @@
  * - streaming: data-perf-row-streaming / data-is-streaming
  * - respuesta: [data-cds="Prose"] dentro de la última fila assistant
  * - completion: action-bar-retry + fila no-streaming; fallback de estabilidad
+ * - descargas (ADR-0013): anclas con href/download dentro de las filas assistant,
+ *   última fila primero. PENDIENTE de validar con snapshot real del file card de
+ *   present_files; mientras tanto el matching exacto por nombre (asset-transport)
+ *   es la garantía de no subir un enlace equivocado.
  *
  * No se usan ids `_r_*`, `base-ui-*` ni hashes/clases utilitarias del build.
  */
@@ -30,6 +34,49 @@
     '[data-testid="action-bar-retry"]',
     '[data-testid="action-bar-copy"]',
   ];
+  // Media Rail out-of-band: candidatos de descarga dentro de una fila assistant.
+  // Se listan TODOS; la elección exacta por fileName la hace asset-transport.
+  const DOWNLOAD_SELECTOR_VERSION = '2026-09-claude-downloads-1';
+  const DOWNLOAD_ANCHORS = [
+    'a[download]',
+    'a[href^="blob:"]',
+    'a[href*="/download"]',
+    'a[href*="/files/"]',
+    '[data-testid*="file" i] a[href]',
+    '[data-testid*="download" i] a[href]',
+    '[data-testid*="artifact" i] a[href]',
+    'a[href][aria-label*="descargar" i]',
+    'a[href][aria-label*="download" i]',
+  ];
+  const DOWNLOAD_ROWS_TO_SCAN = 3;
+
+  function listDownloads() {
+    const transport = globalThis.__debatidorAssetTransport;
+    const nodes = rows(ASSISTANT_ROW);
+    if (!nodes.length) return [];
+    const anchors = [];
+    const recent = nodes.slice(-DOWNLOAD_ROWS_TO_SCAN).reverse();
+    for (const row of recent) {
+      for (const selector of DOWNLOAD_ANCHORS) {
+        for (const anchor of row.querySelectorAll?.(selector) ?? []) anchors.push(anchor);
+      }
+    }
+    if (typeof transport?.anchorsToCandidates === 'function') return transport.anchorsToCandidates(anchors);
+    // Sin transporte cargado: misma forma, deduplicada por href.
+    const seen = new Set();
+    const fallback = [];
+    for (const anchor of anchors) {
+      const href = String(anchor.href ?? anchor.getAttribute?.('href') ?? '');
+      if (!href || seen.has(href)) continue;
+      seen.add(href);
+      fallback.push({
+        href,
+        download: anchor.getAttribute?.('download') ?? undefined,
+        names: [String(anchor.textContent ?? '').trim()],
+      });
+    }
+    return fallback;
+  }
 
   let composerSeenAt = 0;
   let answerKey = '';
@@ -158,6 +205,9 @@
     providerId: 'anthropic',
     connectionId: 'conn_dom_claude',
     selectorVersion: SELECTOR_VERSION,
+    downloadSelectorVersion: DOWNLOAD_SELECTOR_VERSION,
+    /** ADR-0013: candidatos de descarga en las últimas filas assistant (más reciente primero). */
+    listDownloads,
     matches(url) {
       try {
         return new URL(url).hostname.toLowerCase() === 'claude.ai';

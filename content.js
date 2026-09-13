@@ -10,7 +10,7 @@
   const host = globalThis.__debatidorHost;
   if (!host) return;
 
-  const ALLOWED = new Set(['extension.dom_status', 'extension.dom_delta']);
+  const ALLOWED = new Set(['extension.dom_status', 'extension.dom_delta', 'extension.asset_result']);
   const PORT_NAME = 'debatidor-tab';
   const RETRY_MIN_MS = 500;
   const RETRY_MAX_MS = 8000;
@@ -51,6 +51,12 @@
   let configuredDebateId = '';
   /** @type {'unknown' | 'enabled' | 'disabled'} */
   let injectionEnabled = 'unknown';
+  // Media Rail out-of-band (ADR-0013): asset-transport.js se carga antes que
+  // este script en cada host. Un host sin listDownloads() reporta
+  // host_unsupported en vez de intentar adivinar.
+  const assetTransport = globalThis.__debatidorAssetTransport ?? null;
+  /** Tickets en curso en esta pestaña; evita procesar dos veces una reentrega. */
+  const activeAssetTickets = new Set();
 
   connectPort();
 
@@ -170,6 +176,10 @@
       queueMicrotask(tick);
       return;
     }
+    if (msg?.type === 'asset_ticket') {
+      void onAssetTicket(msg);
+      return;
+    }
     if (msg?.type !== 'dom_prompt') return;
     if (injectionEnabled !== 'enabled') return;
     // Prompt dirigido a otro host (multi-modelo): esta pestaña no interviene.
@@ -213,6 +223,44 @@
       turnId = null;
       resetCaptureIdentity();
       publishStatus('error', true);
+    }
+  }
+
+  // --------------------------------------------------------- asset rail
+
+  /**
+   * Ticket de subida (ADR-0013). Mismas reglas de routing que dom_prompt:
+   * consentimiento de la pestaña, identidad del host y sala configurada.
+   * El transporte hace matching EXACTO por fileName dentro de los turnos del
+   * assistant; sin coincidencia reporta download_not_found y no sube nada.
+   */
+  async function onAssetTicket(msg) {
+    if (injectionEnabled !== 'enabled') return;
+    if (msg.connectionId && msg.connectionId !== connectionId) return;
+    if (msg.debateId && configuredDebateId && msg.debateId !== configuredDebateId) return;
+    const ticketId = String(msg.ticketId ?? '');
+    if (!ticketId || activeAssetTickets.has(ticketId)) return;
+    activeAssetTickets.add(ticketId);
+    const report = (result) => emit(assetResultEvent(msg, result));
+    try {
+      if (!assetTransport || typeof host.listDownloads !== 'function') {
+        report({ ok: false, error: 'host_unsupported', ms: 0 });
+        return;
+      }
+      const result = await assetTransport.run(msg, {
+        listDownloads: () => host.listDownloads(),
+        baseHref: location.href,
+      });
+      if (result.ok) {
+        console.debug('[debatidor] asset ' + msg.fileName + ' subido (' + result.bytes + ' bytes, ' + result.ms + ' ms)');
+      } else {
+        console.warn('[debatidor] asset ' + msg.fileName + ' no subido: ' + result.error);
+      }
+      report(result);
+    } catch (err) {
+      report({ ok: false, error: 'unexpected:' + String(err?.message ?? err).slice(0, 120), ms: 0 });
+    } finally {
+      activeAssetTickets.delete(ticketId);
     }
   }
 
@@ -408,6 +456,25 @@
         hostBusy: ['thinking', 'generating'].includes(host.detectStatus()),
         hostId: host.hostId,
         selectorVersion: host.selectorVersion,
+      },
+    };
+  }
+
+  function assetResultEvent(ticket, result) {
+    return {
+      event: 'extension.asset_result',
+      data: {
+        ticketId: ticket.ticketId,
+        connectionId,
+        debateId: ticket.debateId || configuredDebateId || null,
+        ok: result.ok === true,
+        bytes: Number.isSafeInteger(result.bytes) ? result.bytes : undefined,
+        sha256: typeof result.sha256 === 'string' ? result.sha256 : undefined,
+        error: result.ok ? null : String(result.error ?? 'unknown'),
+        via: 'dom',
+        hostId: host.hostId,
+        selectorVersion: host.downloadSelectorVersion ?? host.selectorVersion,
+        ms: Number.isFinite(result.ms) ? Math.round(result.ms) : undefined,
       },
     };
   }

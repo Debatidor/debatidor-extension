@@ -22,6 +22,11 @@
  *    en un bloque JSON varios cientos de ms más tarde.
  * 5. PROHIBIDO anclarse a ids radix (_r_3s_) o clases hash (uFxlGa_*,
  *    wcDTda_*, e33vkq_*): son volátiles entre deploys.
+ * 6. DESCARGAS (ADR-0013): los archivos generados por el intérprete de código
+ *    aparecen como anclas dentro del turno assistant (href a
+ *    /backend-api/estuary/content, sandbox:/… reescrito por la UI, o blob:).
+ *    listDownloads() solo enumera candidatos; el matching exacto por nombre
+ *    vive en asset-transport. PENDIENTE de validar con snapshot real.
  */
 (function attachChatGPTAdapter(global) {
   const SELECTOR_VERSION = '2026-08-chatgpt-prosemirror-2';
@@ -55,6 +60,51 @@
     '#code-block-viewer code',
     '.cm-content code',
   ];
+  const DOWNLOAD_SELECTOR_VERSION = '2026-09-chatgpt-downloads-1';
+  const DOWNLOAD_ANCHORS = [
+    'a[download]',
+    'a[href^="blob:"]',
+    'a[href*="/backend-api/estuary/content"]',
+    'a[href*="/backend-api/files/"]',
+    'a[href^="sandbox:"]',
+    'a[href*="/download"]',
+    '[data-testid*="file" i] a[href]',
+    'a[href][aria-label*="descargar" i]',
+    'a[href][aria-label*="download" i]',
+  ];
+  const DOWNLOAD_TURNS_TO_SCAN = 3;
+
+  function listDownloads() {
+    const transport = globalThis.__debatidorAssetTransport;
+    const nodes = Array.from(document.querySelectorAll(ASSISTANT));
+    if (!nodes.length) return [];
+    const anchors = [];
+    const recent = nodes.slice(-DOWNLOAD_TURNS_TO_SCAN).reverse();
+    for (const node of recent) {
+      // El footer y los file cards pueden vivir fuera del div del mensaje,
+      // dentro de la section del turno.
+      const shell =
+        node.closest?.('section[data-turn="assistant"], [data-testid^="conversation-turn"]') ?? node;
+      for (const selector of DOWNLOAD_ANCHORS) {
+        for (const anchor of shell.querySelectorAll?.(selector) ?? []) anchors.push(anchor);
+      }
+    }
+    if (typeof transport?.anchorsToCandidates === 'function') return transport.anchorsToCandidates(anchors);
+    // Sin transporte cargado: misma forma, deduplicada por href.
+    const seen = new Set();
+    const fallback = [];
+    for (const anchor of anchors) {
+      const href = String(anchor.href ?? anchor.getAttribute?.('href') ?? '');
+      if (!href || seen.has(href)) continue;
+      seen.add(href);
+      fallback.push({
+        href,
+        download: anchor.getAttribute?.('download') ?? undefined,
+        names: [String(anchor.textContent ?? '').trim()],
+      });
+    }
+    return fallback;
+  }
 
   let composerSeenAt = 0;
   let answerKey = '';
@@ -163,6 +213,9 @@
     providerId: 'openai',
     connectionId: 'conn_dom_openai',
     selectorVersion: SELECTOR_VERSION,
+    downloadSelectorVersion: DOWNLOAD_SELECTOR_VERSION,
+    /** ADR-0013: candidatos de descarga en los últimos turnos assistant (más reciente primero). */
+    listDownloads,
     matches(url) {
       return /chatgpt\.com|chat\.openai\.com/i.test(url);
     },

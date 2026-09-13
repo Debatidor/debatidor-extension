@@ -85,3 +85,26 @@
 .host-list {
   grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
 }
+
+/* Media Rail out-of-band (ADR-0013): subidas pendientes y fallback manual. */
+.asset-card { margin-top: 10px; }
+.asset-card .asset-help { padding: 0; text-align: left; margin: 6px 0 8px; }
+.asset-list { display: grid; gap: 6px; }
+.asset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(10, 8, 24, 0.55);
+}
+.asset-copy { display: grid; min-width: 0; line-height: 1.2; }
+.asset-copy strong { overflow: hidden; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.asset-copy small { margin-top: 2px; color: var(--muted); font-size: 8.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-state { margin-top: 3px; color: var(--muted-strong); font-size: 8.5px; }
+.asset-item.is-done .asset-state { color: var(--success); }
+.asset-item.is-failed .asset-state { color: var(--warning); }
+.asset-upload { flex: none; min-height: 28px; margin: 0; padding: 0 10px; font-size: 9.5px; cursor: pointer; }
+.asset-busy { flex: none; color: var(--cyan); font-size: 9px; }

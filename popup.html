@@ -116,6 +116,18 @@
         <p class="helper-text">Vincular autoriza los turnos en esta pestaña. Comprueba la respuesta y su guardado en la transcripción de la Arena.</p>
       </main>
 
+      <section id="asset-card" class="compatibility-card asset-card hidden" aria-labelledby="asset-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">Media Rail</span>
+            <h2 id="asset-title">Subidas pendientes</h2>
+          </div>
+          <span id="asset-count" class="count-badge">0</span>
+        </div>
+        <p class="helper-text asset-help">Si la captura automática no encuentra el archivo en el chat, elige el archivo descargado y súbelo a mano. El enlace del ticket nunca sale de la extensión.</p>
+        <div id="asset-list" class="asset-list" role="list"></div>
+      </section>
+
       <aside id="settings" class="settings-panel hidden" aria-labelledby="settings-title">
         <div class="settings-heading">
           <div>
@@ -157,6 +169,7 @@
         <a href="https://debatidor.com" target="_blank" rel="noreferrer">debatidor.com</a>
       </footer>
     </div>
+    <script src="asset-transport.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

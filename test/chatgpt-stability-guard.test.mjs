@@ -52,7 +52,7 @@ test('manifest y package comparten versión y cargan el guard antes de content.j
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(pkg.version, manifest.version);
   const chatgpt = manifest.content_scripts.find((item) => item.matches.includes('https://chatgpt.com/*'));
-  assert.deepEqual(chatgpt.js, ['hosts/chatgpt.js', 'hosts/chatgpt-stability.js', 'content.js']);
+  assert.deepEqual(chatgpt.js, ['asset-transport.js', 'hosts/chatgpt.js', 'hosts/chatgpt-stability.js', 'content.js']);
 });
 
 test('no finaliza un tool JSON truncado aunque el adapter base diga waiting', () => {

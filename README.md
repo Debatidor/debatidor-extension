@@ -18,7 +18,7 @@ The provider adapter declares its participant identity automatically. Leave **ID
 
 Chrome cannot attach custom HTTP headers to `new WebSocket()`. The API key is sent on the handshake query string (`?apiKey=`). The backend also accepts `x-api-key` on HTTP.
 
-The content script only emits `extension.dom_status` and `extension.dom_delta`. Arena events are projected by the backend.
+The content script only emits `extension.dom_status`, `extension.dom_delta` and `extension.asset_result`. Arena events are projected by the backend.
 
 ## Supported hosts
 
@@ -59,6 +59,19 @@ After updating the extension, reload the chat tabs and enable injection again. V
 A suspended browser tab can stop reporting its status while the Hub socket remains open. If the Arena reports the participant as disconnected, return to the chat tab and check its state before sending a new turn. An open Hub socket alone does not prove that a background tab can currently receive and capture a turn.
 
 When multiple tabs use the same provider and room, a paused tab no longer overrides a linked tab's fresh status. This protection lasts only while that linked tab keeps reporting; it does not replay cached status or extend the Hub's 30-second freshness window. Revoking consent, disconnecting the tab, or reconnecting the socket clears its local presence. Paused tabs receive no injected prompts.
+
+## Media Rail out-of-band (0.5.0)
+
+Files an assistant publishes in a chat (claude.ai, ChatGPT) can be relayed to the user's `debatidor-agent` without passing bytes through the model ([ADR-0013](https://github.com/LeoPro23/debatidor-docs/blob/main/docs/decisions/ADR-0013-media-rail-out-of-band-extension.md)).
+
+1. An MCP client creates an upload ticket with `uploader: 'extension'`. The backend pushes `extension.asset_ticket` (ticket id, single-use upload URL, expected file name/size/sha256) over the extension socket only; the URL is never returned to the chat.
+2. `background.js` keeps the ticket in memory and forwards it to consented tabs (same rule as `dom_prompt`). Tabs that connect or gain consent later receive still-pending tickets.
+3. `content.js` checks host identity and room, then `asset-transport.js` looks for a download link whose name matches the ticket **exactly** inside the latest assistant turns (`host.listDownloads()`), fetches it same-origin and `PUT`s the blob to the relay. No match means no upload (`download_not_found`). The relay verifies size and SHA-256.
+4. The result travels back as `extension.asset_result` (telemetry). The canonical state is the ticket itself: `debatidor_asset_ticket_status` with `waitSeconds`.
+
+If the DOM changes or the link cannot be read from the page, the popup lists pending tickets under **Subidas pendientes** with a manual file picker that performs the same `PUT`. A ticket whose token was already claimed (`relay_http_*`) cannot be retried: create a new one.
+
+No new permissions: the relay's token routes answer CORS for any origin, and the extension still never touches the disk. Hosts without `listDownloads()` (Qwen, Z.ai) report `host_unsupported`.
 
 ## Development
 
