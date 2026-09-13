@@ -55,9 +55,11 @@ test('manifest y package comparten versión y cargan media/host/guard antes de c
   assert.deepEqual(chatgpt.js, [
     'asset-transport.js',
     'asset-integrity-fallback.js',
+    'asset-save-intent.js',
     'hosts/chatgpt.js',
     'hosts/chatgpt-assets.js',
     'hosts/chatgpt-stability.js',
+    'extension-save.js',
     'content.js',
   ]);
 });
