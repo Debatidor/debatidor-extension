@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Debatidor",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Connects an open chat tab to a Debatidor room. Observes generation in the page and relays files the assistant publishes to your Debatidor agent. Does not access the disk.",
   "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://api.debatidor.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
@@ -35,7 +40,14 @@
     },
     {
       "matches": ["https://chatgpt.com/*"],
-      "js": ["asset-transport.js", "hosts/chatgpt.js", "hosts/chatgpt-stability.js", "content.js"],
+      "js": [
+        "asset-transport.js",
+        "asset-integrity-fallback.js",
+        "hosts/chatgpt.js",
+        "hosts/chatgpt-assets.js",
+        "hosts/chatgpt-stability.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     },
     {

@@ -97,18 +97,28 @@ test('hosts sin listDownloads (Qwen, Z.ai) siguen cumpliendo el contrato base: c
   assert.match(content, /msg\.connectionId && msg\.connectionId !== connectionId\) return;\n[\s\S]*?msg\.debateId && configuredDebateId/);
 });
 
-test('manifest 0.5.0 carga asset-transport.js antes de cada host y el popup incluye el fallback manual', () => {
+test('manifest 0.5.1 carga Media Rail antes de cada host y el popup conserva fallback manual', () => {
   const manifest = JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
   const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(manifest.version, '0.5.0');
-  assert.equal(pkg.version, '0.5.0');
+  assert.equal(manifest.version, '0.5.1');
+  assert.equal(pkg.version, '0.5.1');
   for (const entry of manifest.content_scripts) {
     assert.equal(entry.js[0], 'asset-transport.js', `${entry.matches[0]} carga el transporte primero`);
     assert.equal(entry.js[entry.js.length - 1], 'content.js');
   }
-  // Sin permisos nuevos: el PUT va a rutas token con CORS abierto (ADR-0013 §4).
   assert.deepEqual(manifest.permissions, ['storage', 'tabs']);
-  assert.equal('host_permissions' in manifest, false);
+  // El popup/service worker puede hacer el PUT manual al relay. Las rutas token
+  // siguen usando CORS sin credenciales; host_permissions solo habilita el
+  // fetch cross-origin desde páginas chrome-extension://.
+  assert.ok(manifest.host_permissions.includes('https://api.debatidor.com/*'));
+  assert.ok(manifest.host_permissions.includes('http://localhost/*'));
+  assert.ok(manifest.host_permissions.includes('http://127.0.0.1/*'));
+
+  const chatgpt = manifest.content_scripts.find((entry) => entry.matches.includes('https://chatgpt.com/*'));
+  assert.ok(chatgpt.js.includes('asset-integrity-fallback.js'));
+  assert.ok(chatgpt.js.includes('hosts/chatgpt-assets.js'));
+  assert.ok(chatgpt.js.indexOf('asset-integrity-fallback.js') < chatgpt.js.indexOf('hosts/chatgpt.js'));
+  assert.ok(chatgpt.js.indexOf('hosts/chatgpt-assets.js') < chatgpt.js.indexOf('content.js'));
 
   const popup = readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   assert.match(popup, /id="asset-card"/);
