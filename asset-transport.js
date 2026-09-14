@@ -1,18 +1,18 @@
 // Debatidor — transporte out-of-band del Media Rail (ADR-0013).
 //
-// Módulo puro compartido por content.js (captura automática desde el DOM del
-// chat) y popup.js (subida manual). No toca el DOM por sí mismo: recibe una
-// función `listDownloads()` que devuelve candidatos `{ href, download, names }`
-// y decide con matching EXACTO por nombre de archivo. Sin coincidencia no se
-// sube nada: la extensión nunca actúa sobre "cualquier blob que vea".
+// Para descargas normales se conserva el matching exacto por nombre. Para
+// imágenes generadas, un ticket puede declarar sourceStrategy y entonces la
+// fuente se resuelve exclusivamente por su relación semántica con el último
+// turno del usuario; destinationPath/fileName jamás identifica el DOM.
 //
 // Los bytes viajan: fetch same-origin (o blob:) -> PUT al uploadUrl del relay.
-// El SHA-256 lo calcula el backend; aquí solo se valida tamaño y expiración.
 
 (function attachAssetTransport(global) {
   const POLL_MS = 300;
   const DEFAULT_WAIT_MS = 20_000;
+  const STRATEGY_WAIT_MS = 90_000;
   const MAX_ERROR_CHARS = 160;
+  const SOURCE_STRATEGIES = new Set(['previous-turn-image', 'wait-for-new-image']);
 
   /** Normaliza un nombre para comparar: NFC, sin comillas, espacios colapsados, minúsculas. */
   function normalizeName(value) {
@@ -83,6 +83,20 @@
     return null;
   }
 
+  /**
+   * Selección para imágenes generadas. Nunca consulta fileName/path: esos
+   * campos describen el DESTINO. La fuente debe venir tipada por el adapter DOM.
+   */
+  function pickStrategyDownload(candidates, strategy) {
+    if (!SOURCE_STRATEGIES.has(strategy)) return null;
+    const relation = strategy === 'previous-turn-image' ? 'previous-turn' : 'after-latest-user';
+    for (const candidate of candidates ?? []) {
+      if (!candidate?.href || candidate.kind !== 'generated-image') continue;
+      if (candidate.relation === relation) return candidate;
+    }
+    return null;
+  }
+
   /** Convierte anclas DOM en candidatos serializables (los hosts lo usan en listDownloads). */
   function anchorsToCandidates(anchors) {
     const out = [];
@@ -138,6 +152,22 @@
     }
   }
 
+  async function waitForStrategyDownload(listDownloads, strategy, { waitMs, sleep, now }) {
+    const deadline = now() + Math.max(0, waitMs);
+    for (;;) {
+      let candidates = [];
+      try {
+        candidates = listDownloads() ?? [];
+      } catch {
+        candidates = [];
+      }
+      const found = pickStrategyDownload(candidates, strategy);
+      if (found) return found;
+      if (now() >= deadline) return null;
+      await sleep(POLL_MS);
+    }
+  }
+
   /** Valida el blob contra el manifiesto del ticket antes de gastar el token. */
   function assertBlobFits(ticket, blob) {
     if (!blob || !blob.size) throw new Error('download_empty');
@@ -145,6 +175,17 @@
       throw new Error(`size_mismatch:${blob.size}:${ticket.expectedBytes}`);
     }
     if (ticket.maxBytes && blob.size > ticket.maxBytes) throw new Error('payload_too_large');
+  }
+
+  async function sha256Blob(blob) {
+    if (!global.crypto?.subtle || typeof blob?.arrayBuffer !== 'function') return '';
+    const digest = await global.crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  function expectedSha(ticket) {
+    const value = String(ticket?.expectedSha256 ?? '').trim().toLowerCase();
+    return /^[a-f0-9]{64}$/.test(value) ? value : '';
   }
 
   /** PUT crudo al relay. Devuelve el resultado del backend (bytes, sha256, status). */
@@ -182,17 +223,30 @@
     };
   }
 
-  /** Descarga el enlace del host con la sesión del usuario y lo sube al relay. */
-  async function transfer(ticket, href, { fetchImpl }) {
+  async function readSource(href, fetchImpl) {
     let source;
     try {
       source = await fetchImpl(href, { credentials: 'same-origin', cache: 'no-store' });
     } catch (error) {
-      // TypeError de fetch = CORS/CSP del host bloqueó la lectura del body.
       throw new Error(`download_blocked:${errorText(error)}`);
     }
     if (!source.ok) throw new Error(`download_http_${source.status}`);
     const blob = await source.blob();
+    if (!blob?.size) throw new Error('download_empty');
+    return blob;
+  }
+
+  /** Descarga el enlace del host con la sesión del usuario y lo sube al relay. */
+  async function transfer(ticket, href, { fetchImpl, verifySha = false }) {
+    const blob = await readSource(href, fetchImpl);
+    assertBlobFits(ticket, blob);
+    if (verifySha) {
+      const wanted = expectedSha(ticket);
+      if (wanted) {
+        const actual = await sha256Blob(blob);
+        if (!actual || actual !== wanted) throw new Error('sha256_mismatch');
+      }
+    }
     return putToRelay(ticket, blob, { fetchImpl });
   }
 
@@ -210,11 +264,38 @@
 
     if (typeof listDownloads !== 'function') return finish({ ok: false, error: 'host_unsupported' });
     if (!fetchImpl) return finish({ ok: false, error: 'fetch_unavailable' });
-    if (!ticket?.fileName) return finish({ ok: false, error: 'file_name_missing' });
     if (isExpired(ticket, started)) return finish({ ok: false, error: 'ticket_expired' });
 
     const expiry = expiresAtMs(ticket);
-    const waitMs = Math.min(options.waitMs ?? DEFAULT_WAIT_MS, expiry === null ? Infinity : Math.max(0, expiry - started));
+    const strategy = String(ticket?.sourceStrategy ?? '').trim();
+    if (strategy) {
+      if (!SOURCE_STRATEGIES.has(strategy)) {
+        return finish({ ok: false, error: 'source_strategy_invalid' });
+      }
+      const waitMs = Math.min(
+        options.waitMs ?? STRATEGY_WAIT_MS,
+        expiry === null ? Infinity : Math.max(0, expiry - started),
+      );
+      const link = await waitForStrategyDownload(listDownloads, strategy, { waitMs, sleep, now });
+      if (!link) return finish({ ok: false, error: 'source_strategy_not_found' });
+      try {
+        const result = await transfer(ticket, link.href, { fetchImpl, verifySha: true });
+        return finish({
+          ok: true,
+          ...result,
+          href: link.href,
+          matchedBy: strategy,
+        });
+      } catch (error) {
+        return finish({ ok: false, error: errorText(error), href: link.href });
+      }
+    }
+
+    if (!ticket?.fileName) return finish({ ok: false, error: 'file_name_missing' });
+    const waitMs = Math.min(
+      options.waitMs ?? DEFAULT_WAIT_MS,
+      expiry === null ? Infinity : Math.max(0, expiry - started),
+    );
     const link = await waitForDownload(listDownloads, ticket.fileName, {
       waitMs,
       sleep,
@@ -235,8 +316,10 @@
     normalizeName,
     candidateNames,
     pickDownload,
+    pickStrategyDownload,
     anchorsToCandidates,
     isExpired,
+    sha256Blob,
     putToRelay,
     transfer,
     run,
