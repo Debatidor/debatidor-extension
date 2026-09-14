@@ -1,11 +1,10 @@
 /**
  * Integrity fallback for browser-generated media (ADR-0013).
  *
- * Some web chats render a generated asset with a signed/blob URL but no
- * filename matching the destination requested by the user. When a ticket
- * carries expectedBytes and/or expectedSha256, verify candidate media locally
- * before consuming the single-use relay token. Exact filename matching in
- * asset-transport.js remains the default for normal downloadable files.
+ * Legacy tickets without sourceStrategy may still identify a generated asset by
+ * expected bytes/SHA when the DOM filename differs from the destination. New
+ * strategy tickets deliberately bypass this fallback: their source identity is
+ * the DOM relation (previous turn vs next generated image), never destination.
  */
 (function attachAssetIntegrityFallback(global) {
   const transport = global.__debatidorAssetTransport;
@@ -86,6 +85,11 @@
   }
 
   transport.run = async function runWithIntegrityFallback(ticket, options = {}) {
+    // Strategy tickets already carry an unambiguous source selector. Trying a
+    // SHA/single-candidate fallback first could silently pick an older image and
+    // defeat previous-turn-image / wait-for-new-image semantics.
+    if (ticket?.sourceStrategy) return baseRun(ticket, options);
+
     const fetchImpl =
       options.fetchImpl ??
       (typeof global.fetch === 'function' ? global.fetch.bind(global) : null);
@@ -122,6 +126,6 @@
     return baseRun(ticket, options);
   };
 
-  transport.sha256Blob = sha256Blob;
+  transport.sha256Blob = transport.sha256Blob || sha256Blob;
   transport.findIntegrityMatch = findIntegrityMatch;
 })(globalThis);
