@@ -2,9 +2,9 @@
 //
 // Este módulo NO toca red ni disco. Solo convierte el último mensaje manual
 // del usuario en una intención explícita que extension-save.js puede ejecutar
-// fuera del contexto del modelo. La regla deliberadamente exige verbo de
-// guardado + referencia a imagen (o un nombre de archivo de imagen) para no
-// convertir cualquier generación visual en una subida automática.
+// fuera del contexto del modelo. Además separa la identidad de la fuente de la
+// ruta destino: sourceStrategy decide QUÉ imagen del DOM usar y destinationFor
+// decide únicamente CÓMO se llamará dentro del agente.
 (function attachAssetSaveIntent(global) {
   const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif)$/i;
   const PATH_RE = /(?:^|[\s"'`(\[])((?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.(?:png|jpe?g|webp|gif))(?=$|[\s"'`),.;:\]])/gi;
@@ -54,24 +54,41 @@
     return Number.isInteger(value) && value >= 1 && value <= 20 ? value : undefined;
   }
 
+  function sourceStrategy(normalized) {
+    // Frases deícticas: la fuente YA está visible y debe resolverse contra el
+    // assistant turn inmediatamente anterior al último mensaje del usuario.
+    const existingReference =
+      /\b(?:esta|esa|this|that)\s+(?:imagen(?:es)?|image(?:s)?|foto(?:s)?|photo(?:s)?)\b/.test(normalized) ||
+      /\b(?:imagen|image|foto|photo)\s+(?:anterior|previous|de\s+arriba|above)\b/.test(normalized) ||
+      /\b(?:la|the)\s+(?:imagen|image|foto|photo)\s+(?:que\s+)?(?:acabas?\s+de|just)\s+(?:gener\w*|cre\w*)\b/.test(normalized) ||
+      /\bno\s+(?:necesitas?|hace\s+falta)\s+(?:crear|generar)\s+otra\b/.test(normalized);
+    if (existingReference) return 'previous-turn-image';
+
+    // Si el mismo prompt pide generar/crear/dibujar una imagen, la fuente aún
+    // no existía al nacer la intención y se espera la imagen de ese turno.
+    const asksGeneration = /\b(?:gener\w*|crea\w*|create|generate|draw|dibuj\w*|haz)\b/.test(normalized);
+    return asksGeneration ? 'wait-for-new-image' : 'previous-turn-image';
+  }
+
   function parse(text) {
     const raw = String(text ?? '').trim();
     if (!raw) return null;
     const normalized = fold(raw);
     const paths = imagePaths(raw);
-    const saveVerb = /\b(?:guarda(?:r|la|las|lo|los|me|mela|melas)?|guard(?:ar|a|e|en|es)|salva(?:r|la|las|lo|los)?|save|store|write|copy)\b/.test(
+    const saveVerb = /\b(?:guard\w*|salv\w*|save|store|write|copy|pon(?:er|la|las|lo|los)?|pong(?:a|as|amos|an)|coloc\w*|mete\w*|meter|meta\w*|sube\w*|subir|suba\w*|lleva\w*)\b/.test(
       normalized,
     );
     const mentionsImage = /\b(?:imagen(?:es)?|image(?:s)?|foto(?:s)?|photo(?:s)?|png|jpe?g|webp|gif)\b/.test(
       normalized,
     );
     const negated =
-      /\bno\s+(?:quiero\s+)?(?:guard|salv)/.test(normalized) ||
-      /\b(?:do\s+not|don't)\s+(?:save|store|copy|write)\b/.test(normalized);
+      /\bno\s+(?:quiero\s+)?(?:guard|salv|sub|pong|pon|coloc)/.test(normalized) ||
+      /\b(?:do\s+not|don't)\s+(?:save|store|copy|write|upload)\b/.test(normalized);
     if (!saveVerb || (!mentionsImage && paths.length === 0) || negated) return null;
 
     return {
       requested: true,
+      sourceStrategy: sourceStrategy(normalized),
       paths,
       agentId: parseAgentId(raw),
       count: parseCount(normalized),
