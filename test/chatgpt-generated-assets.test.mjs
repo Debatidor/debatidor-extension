@@ -29,7 +29,7 @@ function loadTransport() {
   return vm.runInContext('__debatidorAssetTransport', context);
 }
 
-test('generated image can be selected by SHA even when its DOM name differs from destination path', async () => {
+test('legacy generated image can be selected by SHA even when its DOM name differs from destination path', async () => {
   const transport = loadTransport();
   const sourceBlob = new Blob(['original-image-bytes'], { type: 'image/png' });
   const expectedSha256 = sha(Buffer.from('original-image-bytes'));
@@ -141,7 +141,13 @@ test('ChatGPT host adapter adds unique Estuary image candidates beside normal do
   const answer = { closest: () => shell };
   const context = vm.createContext({
     console,
-    document: { querySelectorAll: () => [answer] },
+    document: {
+      querySelectorAll(selector) {
+        if (selector === 'section[data-turn]') return [];
+        if (selector === '[data-message-author-role="assistant"]') return [answer];
+        return [];
+      },
+    },
     __debatidorHost: {
       hostId: 'chatgpt',
       listDownloads: () => [
@@ -156,4 +162,104 @@ test('ChatGPT host adapter adds unique Estuary image candidates beside normal do
   assert.equal(candidates[1].kind, 'generated-image');
   assert.equal(candidates[1].href, image.currentSrc);
   assert.deepEqual(Array.from(candidates[1].names), ['Imagen generada: pollo']);
+});
+
+test('image-only assistant turn immediately before user is tagged previous-turn', () => {
+  const sourceUrl = 'https://chatgpt.com/backend-api/estuary/content?id=file_real&sig=signed';
+  const image = {
+    currentSrc: sourceUrl,
+    src: sourceUrl,
+    naturalWidth: 1254,
+    naturalHeight: 1254,
+    width: 1254,
+    height: 1254,
+    getAttribute(name) {
+      if (name === 'src') return sourceUrl;
+      if (name === 'alt') return 'Imagen generada: Gallina surcando cielos rurales';
+      return null;
+    },
+    closest(selector) {
+      return selector.includes('image-') || selector.includes('imagegen') ? {} : null;
+    },
+  };
+  const userTurn = {
+    getAttribute: (name) => (name === 'data-turn' ? 'user' : null),
+    dataset: { turn: 'user' },
+    querySelectorAll: () => [],
+  };
+  const assistantTurn = {
+    getAttribute: (name) => (name === 'data-turn' ? 'assistant' : null),
+    dataset: { turn: 'assistant' },
+    querySelectorAll: (selector) => (selector === 'img[src]' ? [image, image] : []),
+    querySelector: () => ({}),
+  };
+  const context = vm.createContext({
+    console,
+    document: {
+      querySelectorAll(selector) {
+        if (selector === 'section[data-turn]') return [assistantTurn, userTurn];
+        return [];
+      },
+    },
+    __debatidorHost: { hostId: 'chatgpt', listDownloads: () => [] },
+  });
+  vm.runInContext(CHATGPT_ASSETS, context);
+  const previous = vm.runInContext('__debatidorHost.listPreviousTurnGeneratedAssets()', context);
+  assert.equal(previous.length, 1);
+  assert.equal(previous[0].href, sourceUrl);
+  assert.equal(previous[0].relation, 'previous-turn');
+  assert.equal(previous[0].kind, 'generated-image');
+});
+
+test('sourceStrategy previous-turn-image ignores destination filename and uploads the previous turn', async () => {
+  const transport = loadTransport();
+  const sourceBlob = new Blob(['native-imagegen-original'], { type: 'image/png' });
+  const sourceUrl = 'https://chatgpt.com/backend-api/estuary/content?id=file_native&sig=signed';
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (init.method === 'PUT') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, status: 'completed', result: { bytes: sourceBlob.size } }),
+      };
+    }
+    return { ok: true, status: 200, blob: async () => sourceBlob };
+  };
+  const result = await transport.run(
+    {
+      ticketId: 'tkt_0123456789abcdef01234567',
+      uploadUrl: UPLOAD_URL,
+      sourceStrategy: 'previous-turn-image',
+      destinationPath: 'gallina_surcando_cielos_rurales.png',
+      fileName: 'gallina_surcando_cielos_rurales.png',
+      maxBytes: 268435456,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+    {
+      listDownloads: () => [
+        {
+          href: sourceUrl,
+          kind: 'generated-image',
+          relation: 'previous-turn',
+          names: ['Imagen generada: Gallina surcando cielos rurales'],
+        },
+        {
+          href: 'https://chatgpt.com/backend-api/estuary/content?id=older',
+          kind: 'generated-image',
+          relation: 'older',
+          names: ['otra.png'],
+        },
+      ],
+      fetchImpl,
+      waitMs: 0,
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.matchedBy, 'previous-turn-image');
+  assert.equal(result.href, sourceUrl);
+  assert.equal(calls[0].url, sourceUrl);
+  assert.equal(calls[1].url, UPLOAD_URL);
+  assert.equal(calls[1].init.body, sourceBlob);
 });
