@@ -1,13 +1,14 @@
 // Debatidor — creación de tickets iniciada por la propia extensión.
 //
 // El modelo no participa en esta llamada. Un content script con consentimiento
-// explícito detecta una intención de guardado, prepara el blob y pide aquí un
-// ticket autenticado. El API key permanece en el service worker y la URL
-// secreta del relay vuelve únicamente al content script aislado.
+// explícito resuelve la fuente real en el DOM, prepara el blob y pide aquí un
+// ticket autenticado. sourceStrategy describe la fuente; destinationPath solo
+// describe dónde terminarán los bytes dentro del agente.
 (function attachExtensionAssetSaveBackground(global) {
   const SHA_RE = /^[a-f0-9]{64}$/;
   const MIME_RE = /^[a-z0-9!#$&^_.+\-]+\/(?:[a-z0-9!#$&^_.+\-]+|\*)$/;
   const MAX_BYTES = 512 * 1024 * 1024;
+  const SOURCE_STRATEGIES = new Set(['previous-turn-image', 'wait-for-new-image']);
 
   function safePath(value) {
     const path = String(value ?? '').trim().replace(/\\/g, '/');
@@ -31,8 +32,14 @@
   }
 
   function validateRequest(data) {
-    const path = safePath(data?.path);
-    if (!path) throw new Error('asset_save_path_invalid');
+    const destinationPath = safePath(data?.destinationPath ?? data?.path);
+    if (!destinationPath) throw new Error('asset_save_destination_path_invalid');
+    if (data?.path && data?.destinationPath) {
+      const legacyPath = safePath(data.path);
+      if (!legacyPath || legacyPath !== destinationPath) throw new Error('asset_save_destination_path_conflict');
+    }
+    const sourceStrategy = String(data?.sourceStrategy ?? '').trim();
+    if (!SOURCE_STRATEGIES.has(sourceStrategy)) throw new Error('asset_save_source_strategy_invalid');
     const expectedBytes = Number(data?.expectedBytes);
     if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || expectedBytes > MAX_BYTES) {
       throw new Error('asset_save_bytes_invalid');
@@ -45,7 +52,15 @@
     if (data?.agentId && !agentId) throw new Error('asset_save_agent_invalid');
     const connectionId = optionalId(data?.connectionId);
     if (data?.connectionId && !connectionId) throw new Error('asset_save_connection_invalid');
-    return { path, expectedBytes, expectedSha256, mimeType, agentId, connectionId };
+    return {
+      destinationPath,
+      sourceStrategy,
+      expectedBytes,
+      expectedSha256,
+      mimeType,
+      agentId,
+      connectionId,
+    };
   }
 
   function ticketsEndpoint(backendUrl) {
@@ -61,7 +76,7 @@
     return url.toString();
   }
 
-  function sanitizeTicket(body) {
+  function sanitizeTicket(body, input) {
     const ticketId = String(body?.ticketId ?? '').trim();
     const uploadUrl = String(body?.uploadUrl ?? '').trim();
     if (!/^tkt_[a-f0-9]{24}$/.test(ticketId)) throw new Error('asset_save_ticket_invalid');
@@ -78,7 +93,9 @@
     return {
       ticketId,
       uploadUrl: url.toString(),
-      path: String(body?.path ?? ''),
+      path: String(body?.path ?? input.destinationPath),
+      destinationPath: String(body?.destinationPath ?? input.destinationPath),
+      sourceStrategy: String(body?.sourceStrategy ?? input.sourceStrategy),
       expectedBytes: Number.isSafeInteger(body?.expectedBytes) ? body.expectedBytes : undefined,
       expectedSha256:
         typeof body?.expectedSha256 === 'string' ? body.expectedSha256 : undefined,
@@ -96,7 +113,12 @@
     const consent = await chrome.storage.session.get(enabledKey);
     if (!consent[enabledKey]) return { ok: false, reason: 'asset_save_consent_required' };
 
-    const input = validateRequest(message?.data ?? {});
+    let input;
+    try {
+      input = validateRequest(message?.data ?? {});
+    } catch (error) {
+      return { ok: false, reason: String(error?.message ?? error) };
+    }
     const config = await chrome.storage.local.get({
       apiKey: '',
       backendUrl: 'wss://api.debatidor.com/extension',
@@ -118,7 +140,10 @@
         body: JSON.stringify({
           direction: 'upload',
           uploader: 'any',
-          path: input.path,
+          // path remains a rollout alias understood by older backends.
+          path: input.destinationPath,
+          destinationPath: input.destinationPath,
+          sourceStrategy: input.sourceStrategy,
           agentId: input.agentId,
           expectedBytes: input.expectedBytes,
           expectedSha256: input.expectedSha256,
@@ -146,7 +171,7 @@
     }
 
     try {
-      return { ok: true, ticket: sanitizeTicket(body) };
+      return { ok: true, ticket: sanitizeTicket(body, input) };
     } catch (error) {
       return { ok: false, reason: String(error?.message ?? error) };
     }

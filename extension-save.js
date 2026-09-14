@@ -1,11 +1,11 @@
 // Debatidor — guardado de imágenes generado por intención del usuario.
 //
-// Flujo:
-//   último prompt manual -> intención explícita -> imagen nueva de ChatGPT
-//   -> fetch same-origin + SHA local -> service worker crea ticket autenticado
-//   -> PUT binario al Media Rail -> agente.
+// Dos modos explícitos:
+//   previous-turn-image  -> usa la imagen nativa del assistant turn anterior.
+//   wait-for-new-image   -> arma baseline y espera la siguiente ImageGen.
 //
-// Ningún paso requiere una tool MCP ni expone la URL del relay al modelo.
+// En ambos casos destinationPath solo nombra el archivo en el agente; nunca se
+// usa para identificar la fuente en el DOM. Ningún paso requiere una tool MCP.
 (function attachExtensionOriginatedAssetSave(global) {
   const host = global.__debatidorHost;
   const transport = global.__debatidorAssetTransport;
@@ -79,6 +79,28 @@
     }
   }
 
+  function previousTurnAssets() {
+    if (typeof host.listPreviousTurnGeneratedAssets !== 'function') return [];
+    try {
+      return (host.listPreviousTurnGeneratedAssets() ?? []).filter(
+        (candidate) => candidate?.href && candidate.kind === 'generated-image',
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  function assetsAfterLatestUser() {
+    if (typeof host.listGeneratedAssetsAfterLatestUser !== 'function') return [];
+    try {
+      return (host.listGeneratedAssetsAfterLatestUser() ?? []).filter(
+        (candidate) => candidate?.href && candidate.kind === 'generated-image',
+      );
+    } catch {
+      return [];
+    }
+  }
+
   function assignIndex(href) {
     if (!ordered.has(href)) ordered.set(href, nextIndex++);
     return ordered.get(href);
@@ -142,8 +164,8 @@
 
     try {
       const { blob, mimeType } = await loadBlob(candidate);
-      const path = intentTools.destinationFor(intent, index, mimeType);
-      const requestId = intentTools.requestId(turnKey, href, path);
+      const destinationPath = intentTools.destinationFor(intent, index, mimeType);
+      const requestId = intentTools.requestId(turnKey, href, destinationPath);
       if (completed.has(requestId)) return;
       const expectedSha256 = await sha256Blob(blob);
       if (!/^[a-f0-9]{64}$/.test(expectedSha256)) throw new Error('sha256_unavailable');
@@ -152,7 +174,10 @@
         type: 'asset-save-create-ticket',
         data: {
           clientRequestId: requestId,
-          path,
+          destinationPath,
+          // path is a rollout alias for old backends; source identity never uses it.
+          path: destinationPath,
+          sourceStrategy: intent.sourceStrategy,
           agentId: intent.agentId,
           connectionId: host.connectionId || 'conn_dom_openai',
           expectedBytes: blob.size,
@@ -167,7 +192,9 @@
       const result = await transport.putToRelay(
         {
           ...created.ticket,
-          fileName: path.split('/').pop() || path,
+          destinationPath,
+          sourceStrategy: intent.sourceStrategy,
+          fileName: destinationPath.split('/').pop() || destinationPath,
           expectedBytes: blob.size,
           expectedSha256,
           mimeType,
@@ -180,7 +207,7 @@
       attempts.delete(initialRequestId);
       retryAt.delete(initialRequestId);
       console.info(
-        `[debatidor] imagen guardada fuera de MCP: ${path} (${result.bytes ?? blob.size} bytes)`,
+        `[debatidor] imagen guardada fuera de MCP: ${destinationPath} (${result.bytes ?? blob.size} bytes; ${intent.sourceStrategy})`,
       );
     } catch (error) {
       retryAt.set(initialRequestId, Date.now() + RETRY_MS);
@@ -188,6 +215,30 @@
         `[debatidor] guardado automático falló (${tries + 1}/${MAX_ATTEMPTS}): ${String(error?.message ?? error)}`,
       );
     }
+  }
+
+  function requestedLimit(intent) {
+    if (Number.isInteger(intent?.count) && intent.count > 0) return intent.count;
+    if (Array.isArray(intent?.paths) && intent.paths.length > 0) return intent.paths.length;
+    // "esta imagen" is intentionally singular unless the prompt explicitly
+    // names/counts more assets.
+    return 1;
+  }
+
+  function candidatesFor(intent) {
+    if (intent?.sourceStrategy === 'previous-turn-image') {
+      // Critical fix: do NOT baseline away an image which necessarily predates
+      // the save request. Only the immediately previous assistant turn qualifies.
+      return previousTurnAssets();
+    }
+
+    if (intent?.sourceStrategy === 'wait-for-new-image') {
+      const after = assetsAfterLatestUser();
+      if (after.length) return after.filter((candidate) => !baseline.has(String(candidate.href)));
+      // Old/transition DOM fallback: baseline remains the safety boundary.
+      return generatedAssets().filter((candidate) => !baseline.has(String(candidate.href)));
+    }
+    return [];
   }
 
   async function scan() {
@@ -205,12 +256,11 @@
       }
       if (!activeIntent?.requested) return;
 
-      const fresh = generatedAssets().filter(
-        (candidate) => !baseline.has(String(candidate.href)),
-      );
-      for (const candidate of fresh) {
+      const limit = requestedLimit(activeIntent);
+      const candidates = candidatesFor(activeIntent);
+      for (const candidate of candidates) {
         const index = assignIndex(String(candidate.href));
-        if (activeIntent.count && index >= activeIntent.count) continue;
+        if (index >= limit) continue;
         await saveCandidate(candidate, index, turn.key, activeIntent);
       }
     } finally {

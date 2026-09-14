@@ -97,11 +97,11 @@ test('hosts sin listDownloads (Qwen, Z.ai) siguen cumpliendo el contrato base: c
   assert.match(content, /msg\.connectionId && msg\.connectionId !== connectionId\) return;\n[\s\S]*?msg\.debateId && configuredDebateId/);
 });
 
-test('manifest 0.5.2 carga Media Rail y guardado iniciado por extensión sin romper fallback manual', () => {
+test('manifest 0.5.3 carga Media Rail y sourceStrategy sin romper fallback manual', () => {
   const manifest = JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
   const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(manifest.version, '0.5.2');
-  assert.equal(pkg.version, '0.5.2');
+  assert.equal(manifest.version, '0.5.3');
+  assert.equal(pkg.version, '0.5.3');
   assert.equal(manifest.background.service_worker, 'background-entry.js');
   for (const entry of manifest.content_scripts) {
     assert.equal(entry.js[0], 'asset-transport.js', `${entry.matches[0]} carga el transporte primero`);
@@ -125,7 +125,15 @@ test('manifest 0.5.2 carga Media Rail y guardado iniciado por extensión sin rom
   assert.ok(chatgpt.js.indexOf('extension-save.js') < chatgpt.js.indexOf('content.js'));
 
   const backgroundEntry = readFileSync(path.join(ROOT, 'background-entry.js'), 'utf8');
-  assert.match(backgroundEntry, /importScripts\(['"]background\.js['"], ['"]asset-save-background\.js['"]\)/);
+  assert.match(backgroundEntry, /['"]background\.js['"]/);
+  assert.match(backgroundEntry, /['"]asset-ticket-strategy-background\.js['"]/);
+  assert.match(backgroundEntry, /['"]asset-save-background\.js['"]/);
+  assert.ok(
+    backgroundEntry.indexOf('background.js') < backgroundEntry.indexOf('asset-ticket-strategy-background.js'),
+  );
+  assert.ok(
+    backgroundEntry.indexOf('asset-ticket-strategy-background.js') < backgroundEntry.indexOf('asset-save-background.js'),
+  );
 
   const popup = readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   assert.match(popup, /id="asset-card"/);

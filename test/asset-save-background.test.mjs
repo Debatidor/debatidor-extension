@@ -12,6 +12,7 @@ function harness({ enabled = true } = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url: String(url), init });
+    const request = JSON.parse(String(init?.body ?? '{}'));
     return {
       ok: true,
       status: 201,
@@ -20,7 +21,9 @@ function harness({ enabled = true } = {}) {
         direction: 'upload',
         uploader: 'any',
         status: 'pending',
-        path: 'imagen_original.png',
+        path: request.path,
+        destinationPath: request.destinationPath,
+        sourceStrategy: request.sourceStrategy,
         expectedBytes: 1234,
         expectedSha256: 'b'.repeat(64),
         mimeType: 'image/png',
@@ -67,7 +70,9 @@ function harness({ enabled = true } = {}) {
 
 function validData(overrides = {}) {
   return {
+    destinationPath: 'imagen_original.png',
     path: 'imagen_original.png',
+    sourceStrategy: 'previous-turn-image',
     agentId: 'vps-workspace',
     connectionId: 'conn_dom_openai',
     expectedBytes: 1234,
@@ -83,6 +88,8 @@ test('tab consentida crea un ticket HTTP autenticado sin pasar por MCP', async (
   assert.equal(result.ok, true);
   assert.equal(result.ticket.ticketId, TICKET_ID);
   assert.equal(result.ticket.uploadUrl, UPLOAD_URL);
+  assert.equal(result.ticket.destinationPath, 'imagen_original.png');
+  assert.equal(result.ticket.sourceStrategy, 'previous-turn-image');
   assert.equal(h.calls.length, 1);
   assert.equal(h.calls[0].url, 'https://api.debatidor.com/asset-relay/tickets');
   assert.equal(h.calls[0].init.method, 'POST');
@@ -91,6 +98,8 @@ test('tab consentida crea un ticket HTTP autenticado sin pasar por MCP', async (
   assert.equal(body.uploader, 'any');
   assert.equal(body.direction, 'upload');
   assert.equal(body.path, 'imagen_original.png');
+  assert.equal(body.destinationPath, 'imagen_original.png');
+  assert.equal(body.sourceStrategy, 'previous-turn-image');
   assert.equal(body.agentId, 'vps-workspace');
   assert.equal(body.expectedBytes, 1234);
   assert.equal(body.expectedSha256, 'b'.repeat(64));
@@ -105,11 +114,14 @@ test('sin consentimiento no toca la red ni devuelve secretos', async () => {
   assert.equal(h.calls.length, 0);
 });
 
-test('rechaza rutas inseguras y metadatos de integridad inválidos antes de crear ticket', async () => {
+test('rechaza destino, estrategia o integridad inválidos antes de crear ticket', async () => {
   const h = harness();
-  const unsafe = await h.message(validData({ path: '../escape.png' }));
+  const unsafe = await h.message(validData({ destinationPath: '../escape.png', path: '../escape.png' }));
   assert.equal(unsafe.ok, false);
-  assert.match(unsafe.reason, /asset_save_path_invalid/);
+  assert.match(unsafe.reason, /asset_save_destination_path_invalid/);
+  const badStrategy = await h.message(validData({ sourceStrategy: 'whatever' }));
+  assert.equal(badStrategy.ok, false);
+  assert.match(badStrategy.reason, /asset_save_source_strategy_invalid/);
   const badSha = await h.message(validData({ expectedSha256: 'nope' }));
   assert.equal(badSha.ok, false);
   assert.match(badSha.reason, /asset_save_sha256_invalid/);
